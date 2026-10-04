@@ -1,6 +1,6 @@
 # stocks.py
 
-An agent skill for stock market data and analysis, backed by a single-file CLI tool written in Python powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, score fundamental health, retrieve historical OHLCV data, and generate publication-ready PNG charts.
+An agent skill for stock market data and analysis, backed by a single-file CLI tool written in Python powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and generate publication-ready PNG charts.
 
 ![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks.py/main/chart_example.png)
 
@@ -10,8 +10,8 @@ An agent skill for stock market data and analysis, backed by a single-file CLI t
 - **Stock quotes** - Price, valuation metrics, volume, sector, and more
 - **Moving averages** - SMA (20/50/200-day) and EMA (9/21-day) with position analysis
 - **News** - Latest articles for any ticker or free-text market topic
-- **Analyst recommendations** - Consensus breakdown and per-firm rating changes with price targets
-- **Fundamental health score** - 0–100 scored report across four pillars: Profitability, Growth, Financial Health, Cash Generation
+- **Analyst recommendations** - Factual analyst counts and dated per-firm rating/price-target changes, with retrieval failures shown (including partial failures)
+- **Fundamentals** - Compact dated financial snapshot of income, free cash flow, cash, and debt
 - **Ticker search** - Find symbols by company name
 - **Historical data** - OHLCV data with configurable periods and intervals
 - **PNG charts** - Candlestick and line charts with transparent/white/black backgrounds
@@ -50,8 +50,8 @@ Install in Claude Desktop as a skill.
 | `quote` | Get stock quote with moving averages |
 | `search` | Search for ticker symbols by company name |
 | `news` | Latest news articles for a ticker or any search topic |
-| `recommendations` | Analyst consensus and recent rating changes |
-| `fundamentals` | Four-pillar fundamental health score (0–100) |
+| `recommendations` | Analyst counts and dated rating/price-target changes |
+| `fundamentals` | Compact dated financial snapshot |
 | `history` | Get historical OHLCV data |
 | `chart` | Generate PNG chart |
 
@@ -79,7 +79,7 @@ Output includes headline, publisher, timestamp, and URL for each article. Add `-
 ### Analyst Recommendations
 
 ```bash
-# Current consensus + last 3 months of rating changes
+# Analyst counts + last 3 months of dated rating/price-target changes
 stocks.py recommendations AAPL
 
 # Extended history
@@ -88,34 +88,26 @@ stocks.py recommendations NVDA -H 1
 ```
 
 Output includes:
-- **Consensus breakdown** — strongBuy / buy / hold / sell / strongSell counts for current month and prior two months, with BUY / HOLD/MIXED / SELL verdict
-- **Rating changes** — per-firm actions with grade transitions, price targets, and direction arrows
+- **Analyst counts** — strongBuy / buy / hold / sell / strongSell counts for current month and available prior months; no computed BUY/SELL/HOLD verdict
+- **Dated rating/price-target changes** — per-firm actions with grade transitions and price targets
+- **Retrieval failures** — displayed explicitly, including partial failures when one source succeeds and another fails; available data remains visible
 
-Verdict logic: `strongBuy + buy > 60%` → BUY · `strongSell + sell > 20%` → SELL · otherwise HOLD/MIXED
-
-### Fundamental Health Score
+### Fundamentals
 
 ```bash
-# Full scored report
+# Compact dated financial snapshot (default)
 stocks.py fundamentals AAPL
 
-# Raw numbers table without scoring
-stocks.py fundamentals GOOGL --raw
-
-# JSON output for agents/LLMs
+# Same factual data as JSON for agents/LLMs
 stocks.py fundamentals META --json
 ```
 
-Produces a **0–100 Health Score** from four pillars (0–25 each):
+The default output is a compact financial snapshot:
+- **Income statement** — Revenue, Gross Profit, Operating Income, and Net Income for TTM and up to three fiscal years, with actual period dates
+- **Cash flow** — Free Cash Flow for TTM and up to three fiscal years, using its own cashflow period dates rather than income-statement dates
+- **Latest balance sheet** — Cash (Cash And Cash Equivalents) and Total Debt, with the actual balance-sheet date
 
-| Pillar | Key Metrics |
-|--------|-------------|
-| Profitability | Gross / Net / Operating Margin (TTM), Margin Trend vs 3yr avg |
-| Growth | Revenue CAGR (3yr), Net Income CAGR (3yr), YoY Acceleration |
-| Financial Health | Debt-to-Equity, Current Ratio, Debt Trend |
-| Cash Generation | FCF Margin (TTM), FCF Consistency (3yr), FCF Quality (FCF/NI) |
-
-Each metric displays a `●●●●○` dot meter. Full-score thresholds: Gross Margin ≥ 50%, Net/Op Margins ≥ 20/25%, CAGR ≥ 15%, D/E ≤ 0.5, Current Ratio ≥ 2.0, FCF Margin ≥ 20%.
+`--json` outputs the same factual data and dates. Text displays billions of reported currency; JSON retains unscaled values. Retrieval failures exit with status 1. No scores, ratios, trends, CAGR, dot meters, or business-quality/ranking signals are produced. There is no `--raw` flag.
 
 ### Stock Quote
 
@@ -197,8 +189,7 @@ stocks.py chart AMD --period 1y --width 1400 --height 900 --ma 20 50 200 --outpu
 | Option | Description |
 |--------|-------------|
 | `symbol` | Stock ticker symbol (required) |
-| `--raw` | Print underlying numbers table without scoring |
-| `--json` | Output as JSON for agent/LLM consumption |
+| `--json` | Output the same factual financial snapshot and dates as JSON |
 
 ### Quote Command
 
@@ -234,22 +225,22 @@ stocks.py chart AMD --period 1y --width 1400 --height 900 --ma 20 50 200 --outpu
 | `--ma` | 20 50 200 | Moving average periods |
 | `--background`, `-b` | white | Background: white, black, transparent |
 
-## Agent Analysis Stack
+## Agent Research Workflow
 
-The three analysis commands form a layered stack designed for agent workflows:
+These three commands provide factual inputs for agent research:
 
 ```bash
-# 1. Fundamentals — Is the business healthy? (objective, backward-looking)
+# 1. Fundamentals — Dated financial snapshot
 stocks.py fundamentals AAPL --json
 
-# 2. Recommendations — What do analysts think? (forward-looking consensus)
+# 2. Recommendations — Analyst counts and dated rating/price-target changes
 stocks.py recommendations AAPL
 
 # 3. News — What is happening right now? (real-time context)
 stocks.py news AAPL --count 10
 ```
 
-With `--json` on `fundamentals`, an agent can run all three for any ticker, combine the outputs, and produce a structured investment thesis. The `fundamentals` score also enables screening — run against a list of tickers and rank by health score to surface candidates worth deeper analysis.
+With `--json` on `fundamentals`, an agent can collect the dated financial snapshot alongside analyst records and news. These commands supply data, not computed investment verdicts or business-quality rankings.
 
 ## Moving Averages
 

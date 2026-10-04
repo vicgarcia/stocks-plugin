@@ -52,7 +52,7 @@ Each command follows the same three-part pattern:
 2. **`format_*()`** — takes the dict, returns a formatted string for stdout
 3. **Subparser + dispatch** — registered in `main()`, calls get → format → print
 
-The data dict always includes an `"error"` key on failure instead of raising exceptions. Formatters check for this first.
+Retrieval failures are returned as data rather than raised as exceptions. Formatters display failures explicitly. Recommendations must preserve successful source data while also displaying any partial retrieval failures, rather than silently treating failed sources as empty results.
 
 ### Commands
 
@@ -68,28 +68,22 @@ The data dict always includes an `"error"` key on failure instead of raising exc
 
 ### Fundamentals Pipeline
 
-`fundamentals` is the most complex command — it has a three-stage pipeline:
+`fundamentals` uses a two-stage data → formatting pipeline:
 
 ```
-get_fundamentals(symbol)      →  raw dict (all financial data)
-score_fundamentals(raw)       →  scored dict (pillars + total score + raw embedded)
-format_fundamentals(scored)   →  stdout string (or JSON / raw table via flags)
+get_fundamentals(symbol)   →  factual financial snapshot dict with source dates
+format_fundamentals(data)  →  compact stdout snapshot (or the same factual data as JSON)
 ```
 
-The `main()` dispatch calls all three stages explicitly so scoring logic stays separate from formatting.
+The `main()` dispatch calls get → format → print. `--json` changes serialization, not the data content; `--raw` is removed.
 
-### Helper Functions (fundamentals)
-
-- `_safe_get(df, metric)` — extracts a scalar from a DataFrame or Series by partial metric name match (case-insensitive). Handles both Series (TTM) and DataFrame (annual) shapes.
-- `_col_series(df, metric, n=4)` — extracts up to `n` annual values for a metric, newest first (column index order matches yfinance column ordering).
-- `_cagr(start, end, years)` — compound annual growth rate, returns `None` on invalid inputs.
-- `_dots(score, max_score, total=5)` — returns a `●●●●○` dot meter string.
+`score_fundamentals` and all scoring/analysis helpers are removed. There are no computed scores, ratios, trends, CAGR, or dot meters. Extraction and formatting preserve factual values and actual source dates, including cashflow dates independently of income-statement dates.
 
 ### yfinance Data Shape Notes
 
-- `ticker.income_stmt` / `ticker.balance_sheet` / `ticker.cashflow` — DataFrame where **columns are dates (newest first)** and **rows are metric names**. Index strings can vary slightly; use partial lowercase matching.
-- `ticker.ttm_income_stmt` / `ticker.ttm_cashflow` — may be a Series or single-column DataFrame depending on yfinance version. `_safe_get()` handles both.
-- `ticker.upgrades_downgrades` — DataFrame indexed by `GradeDate` (timezone-naive `pd.Timestamp`). Use `pd.Timestamp.now()` (no tz) for cutoff comparisons.
+- `ticker.income_stmt` / `ticker.balance_sheet` / `ticker.cashflow` — DataFrame where **columns are dates (newest first)** and **rows are metric names**. Preserve each statement's actual dates; do not substitute income-statement dates for cashflow or balance-sheet dates. Cash uses the `Cash And Cash Equivalents` row, not a broader cash/investments metric.
+- `ticker.ttm_income_stmt` / `ticker.ttm_cashflow` — dated DataFrames, extracted with exact metric row names via `_statement_values()`; missing values retain their dates.
+- `ticker.upgrades_downgrades` — DataFrame indexed by `GradeDate`. Use `pd.Timestamp.now(tz=ud.index.tz)` to support both timezone-aware and naive indexes.
 - `ticker.recommendations_summary` — DataFrame with `period` column (`"0m"`, `"-1m"`, `"-2m"`) and columns `strongBuy`, `buy`, `hold`, `sell`, `strongSell`.
 - `yf.Search(query, news_count=n).news` — returns a list of dicts with keys: `title`, `publisher`, `link`, `providerPublishTime` (Unix timestamp int), `type`, `relatedTickers`. No `summary` field in this path.
 
@@ -116,7 +110,7 @@ The `description` field is what an agent uses to decide when to invoke this skil
 | Audience | AI agents | Human developers/users |
 | Tone | Precise, structured, scannable | Friendly, instructional |
 | Focus | Command syntax, return values, option semantics | Installation, features, examples |
-| Workflows | Agent pipelines (JSON output, screening loops) | Human workflows (charting, research) |
+| Workflows | Agent research inputs (JSON snapshots, data collection loops) | Human workflows (charting, research) |
 
 When adding a new command, update **both** files. SKILL.md should include the exact output fields the agent will need to parse or pass to an LLM.
 
@@ -134,51 +128,32 @@ When adding a new command, update **both** files. SKILL.md should include the ex
 
 ---
 
-## Scoring Model (`fundamentals`)
+## Financial Snapshot Contract (`fundamentals`)
 
-Four pillars, each 0–25, summed to 0–100:
+Default output is compact and dated:
 
-### Pillar 1 — Profitability
-| Metric | Max pts | Full-score threshold |
-|--------|---------|----------------------|
-| Gross Margin (TTM) | 8 | ≥ 50% |
-| Net Margin (TTM) | 8 | ≥ 20% |
-| Operating Margin (TTM) | 8 | ≥ 25% |
-| Margin Trend (TTM vs 3yr avg gross margin) | 1 | Improving |
+| Source | Rows | Periods |
+|--------|------|---------|
+| Income statement | Revenue, Gross Profit, Operating Income, Net Income | TTM and up to three fiscal years, with actual period dates |
+| Cashflow | Free Cash Flow | TTM and up to three fiscal years, with its own period dates |
+| Latest balance sheet | Cash (`Cash And Cash Equivalents`), Total Debt | Latest balance-sheet values with the actual date |
 
-### Pillar 2 — Growth
-| Metric | Max pts | Full-score threshold |
-|--------|---------|----------------------|
-| Revenue CAGR (3yr) | 10 | ≥ 15% |
-| Net Income CAGR (3yr) | 10 | ≥ 15% |
-| YoY Revenue Acceleration | ±5 / -2 | +5% accel = full bonus |
+`--json` outputs the same factual values and dates. Amounts are displayed in billions of reported currency. JSON retains unscaled values. Retrieval failures exit with status 1. The command does not produce business-quality signals or rankings.
 
-### Pillar 3 — Financial Health
-| Metric | Max pts | Full-score threshold |
-|--------|---------|----------------------|
-| Debt-to-Equity | 10 | ≤ 0.5 (linear decay to 3.0) |
-| Current Ratio | 10 | ≥ 2.0 |
-| Debt Trend (3yr) | +5 / -2 | Declining = +5, Increasing = -2 |
+## Recommendations Contract
 
-### Pillar 4 — Cash Generation
-| Metric | Max pts | Full-score threshold |
-|--------|---------|----------------------|
-| FCF Margin (TTM) | 10 | ≥ 20% |
-| FCF Consistency (3yr) | 10 | All 3 years positive |
-| FCF Quality (FCF/NI) | 5 | ≥ 0.8 |
-
-All metrics scale linearly from 0 to their threshold. Negative values (losses, negative FCF) score 0, not negative. Pillar totals are capped at 25.
+Retain strongBuy / buy / hold / sell / strongSell analyst counts for the current month and available prior months, plus dated per-firm rating/price-target changes for the requested history window (`--history` / `-H`, default 3 months). Do not compute BUY/SELL/HOLD verdicts. Display retrieval failures explicitly, including partial failures, alongside any successfully retrieved data.
 
 ---
 
 ## Agent Use Case
 
-These three commands form the core analysis stack for an agent:
+These three commands provide factual research inputs for an agent:
 
 ```bash
-stocks.py fundamentals <TICKER> --json   # Objective business quality signal
-stocks.py recommendations <TICKER>       # Forward-looking analyst sentiment
-stocks.py news <TICKER|TOPIC>            # Real-time context
+stocks.py fundamentals <TICKER> --json   # Dated financial snapshot as JSON
+stocks.py recommendations <TICKER>       # Analyst counts and dated rating/price-target changes
+stocks.py news <TICKER|TOPIC>            # Current news context
 ```
 
-The `--json` flag on `fundamentals` outputs a structured dict with `total_score`, all four pillar scores, and per-metric values — suitable for passing directly to an LLM prompt. The score (0–100) also enables ranking: run across a list of tickers and sort by `total_score` to screen candidates.
+The `--json` flag on `fundamentals` outputs the same factual snapshot data and dates as the default text output. Agents can collect these inputs across tickers without treating them as tool-generated investment verdicts, business-quality signals, or rankings.

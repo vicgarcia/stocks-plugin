@@ -1,12 +1,12 @@
 ---
 name: stocks
-description: Get stock market data from Yahoo Finance. Use when the user asks about stock prices, quotes, company valuations, moving averages, historical data, stock charts, latest news, analyst recommendations, or fundamental health scores. Supports any publicly traded stock via ticker symbol.
+description: Get stock market data from Yahoo Finance. Use when the user asks about stock prices, quotes, company valuations, moving averages, historical data, stock charts, latest news, analyst recommendations, or dated financial snapshots. Supports any publicly traded stock via ticker symbol.
 compatibility: Requires uv or stocks.py in PATH.
 ---
 
 # Stock Market Data Tool
 
-Get stock quotes, news, analyst recommendations, fundamental health scores, historical data, and charts using the `stocks.py` CLI powered by Yahoo Finance.
+Get stock quotes, news, analyst recommendations, dated financial snapshots, historical data, and charts using the `stocks.py` CLI powered by Yahoo Finance.
 
 ## Invocation
 
@@ -148,45 +148,31 @@ Returns OHLCV data:
 - Open, High, Low, Close prices
 - Volume
 
-### Fundamental Health Score
+### Fundamentals
 ```bash
-# Scored four-pillar report
+# Compact dated financial snapshot (default)
 stocks.py fundamentals AAPL
 
-# Raw numbers table (no scoring)
-stocks.py fundamentals GOOGL --raw
-
-# JSON output for agent/LLM use
+# Same factual data as JSON for agent/LLM use
 stocks.py fundamentals META --json
 ```
 
-Returns a **0–100 Health Score** built from four pillars (each 0–25):
+Returns a compact dated financial snapshot:
+- **Income statement** — Revenue, Gross Profit, Operating Income, and Net Income for TTM and up to three fiscal years, with actual period dates
+- **Cash flow** — Free Cash Flow for TTM and up to three fiscal years, with its own cashflow period dates (not borrowed from the income statement)
+- **Latest balance sheet** — Cash (Cash And Cash Equivalents) and Total Debt with the actual balance-sheet date
 
-| Pillar | Metrics |
-|--------|---------|
-| **Profitability** | Gross Margin, Net Margin, Operating Margin (all TTM), Margin Trend vs 3yr avg |
-| **Growth** | Revenue CAGR (3yr), Net Income CAGR (3yr), YoY Acceleration bonus/penalty |
-| **Financial Health** | Debt-to-Equity, Current Ratio, Debt Trend (3yr) |
-| **Cash Generation** | FCF Margin (TTM), FCF Consistency (3yr), FCF Quality (FCF/Net Income) |
-
-Each metric shows a dot meter (`●●●●○`) indicating score relative to its full-score threshold. Pillar scores and total score are shown numerically.
-
-Scoring thresholds (full score):
-- Gross Margin ≥ 50%, Net Margin ≥ 20%, Operating Margin ≥ 25%
-- Revenue / Net Income CAGR ≥ 15%
-- Debt-to-Equity ≤ 0.5, Current Ratio ≥ 2.0
-- FCF Margin ≥ 20%, FCF Quality (FCF/NI) ≥ 0.8
+`--json` contains the same factual data and dates as the default output. JSON fields are `symbol`, `financials` (each entry has `label`, `ttm`, and `annual`), and `balance_sheet` (entries have `label` and `latest`). Each dated value is `{period, value}`; missing values are null. JSON amounts are unscaled, while text displays billions of reported currency. Retrieval failures exit with status 1. No scores, ratios, trends, CAGR, dot meters, or business-quality/ranking signals are produced. There is no `--raw` flag.
 
 Options:
 | Option | Description |
 |--------|-------------|
 | `symbol` | Stock ticker symbol (required) |
-| `--raw` | Print underlying numbers table without scoring |
-| `--json` | Output everything as JSON for agent/LLM consumption |
+| `--json` | Output the same factual financial snapshot and dates as JSON |
 
 ### Analyst Recommendations
 ```bash
-# Current consensus + recent rating changes
+# Analyst counts + dated rating/price-target changes
 stocks.py recommendations AAPL
 
 # Extended history
@@ -195,13 +181,9 @@ stocks.py recommendations NVDA -H 1
 ```
 
 Returns:
-- **Consensus breakdown** — strongBuy / buy / hold / sell / strongSell counts for current month and prior 2 months, with BUY / HOLD/MIXED / SELL verdict
-- **Recent rating changes** — per-firm actions with FromGrade → ToGrade, price targets with direction arrows, and action label (upgraded / downgraded / maintains)
-
-Consensus verdict logic:
-- `strongBuy + buy > 60%` of total → **BUY**
-- `strongSell + sell > 20%` of total → **SELL**
-- Otherwise → **HOLD/MIXED**
+- **Analyst counts** — strongBuy / buy / hold / sell / strongSell counts for current month and available prior months; no computed BUY/SELL/HOLD verdict
+- **Dated rating/price-target changes** — per-firm actions with FromGrade → ToGrade, price targets, and action label (upgraded / downgraded / maintains)
+- **Retrieval failures** — displayed explicitly, including partial failures when one source succeeds and another fails; available data remains visible
 
 Options:
 | Option | Default | Description |
@@ -216,29 +198,29 @@ Options:
 stocks.py quote AAPL
 ```
 
-### Full Company Analysis (Layered Stack)
+### Company Research
 ```bash
-# Layer 1: Is the business fundamentally healthy? (objective, backward-looking)
+# Dated financial snapshot
 stocks.py fundamentals AAPL
 
-# Layer 2: What do analysts think? (forward-looking consensus)
+# Analyst counts and dated rating/price-target changes
 stocks.py recommendations AAPL
 
-# Layer 3: What is happening right now? (real-time context)
+# Current news context
 stocks.py news AAPL
 ```
 
-### Agent Analysis Pipeline (JSON)
+### Agent Research Inputs
 ```bash
-# All three outputs as JSON for an LLM to synthesize
+# Fundamentals as JSON; recommendations and news as text
 stocks.py fundamentals AAPL --json
 stocks.py recommendations AAPL
 stocks.py news AAPL --count 10
 ```
 
-### Screen Stocks by Health Score
+### Collect Financial Snapshots
 ```bash
-# Compare fundamentals across multiple tickers
+# Collect dated factual data across multiple tickers (no rankings)
 for ticker in AAPL MSFT GOOGL META AMZN; do
   stocks.py fundamentals $ticker
 done
@@ -252,10 +234,10 @@ stocks.py search "Tesla"
 # Get quote
 stocks.py quote TSLA
 
-# Check fundamental health
+# Get a dated financial snapshot
 stocks.py fundamentals TSLA
 
-# View analyst consensus
+# View analyst counts and dated changes
 stocks.py recommendations TSLA
 
 # Latest news
