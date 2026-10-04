@@ -18,7 +18,7 @@ Commands:
     chart           - Generate PNG chart with white background (default)
     news            - Get latest news for a ticker or any search query
     recommendations - Analyst consensus and recent rating changes
-    fundamentals    - Four-pillar fundamental health score (0-100)
+    fundamentals    - Compact financial snapshot (no scoring)
 """
 
 import argparse
@@ -522,7 +522,10 @@ def get_recommendations(symbol: str, history_months: int = 3) -> Dict[str, Any]:
     """Get analyst consensus and recent rating changes."""
     ticker = yf.Ticker(symbol)
 
-    # Consensus summary (current + prior 2 months)
+    errors = []
+    consensus_failed = False
+    changes_failed = False
+    # Consensus summary (current + prior months)
     consensus_rows = []
     try:
         summary = ticker.recommendations_summary
@@ -535,17 +538,6 @@ def get_recommendations(symbol: str, history_months: int = 3) -> Dict[str, Any]:
                 sell        = int(row.get("sell",       0))
                 strong_sell = int(row.get("strongSell", 0))
                 total = strong_buy + buy + hold + sell + strong_sell
-                if total > 0:
-                    bull_pct = (strong_buy + buy) / total
-                    bear_pct = (strong_sell + sell) / total
-                    if bull_pct > 0.60:
-                        label = "BUY"
-                    elif bear_pct > 0.20:
-                        label = "SELL"
-                    else:
-                        label = "HOLD/MIXED"
-                else:
-                    label = "N/A"
                 consensus_rows.append({
                     "period": period,
                     "strong_buy": strong_buy,
@@ -554,10 +546,10 @@ def get_recommendations(symbol: str, history_months: int = 3) -> Dict[str, Any]:
                     "sell": sell,
                     "strong_sell": strong_sell,
                     "total": total,
-                    "label": label,
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        consensus_failed = True
+        errors.append(f"Failed to fetch analyst consensus: {e}")
 
     # Upgrades/downgrades
     rating_changes = []
@@ -565,7 +557,7 @@ def get_recommendations(symbol: str, history_months: int = 3) -> Dict[str, Any]:
         ud = ticker.upgrades_downgrades
         if ud is not None and not ud.empty:
             # Filter to requested months window
-            cutoff = pd.Timestamp.now() - pd.DateOffset(months=history_months)
+            cutoff = pd.Timestamp.now(tz=ud.index.tz) - pd.DateOffset(months=history_months)
             ud = ud[ud.index >= cutoff]
             ud = ud.sort_index(ascending=False)
 
@@ -580,7 +572,7 @@ def get_recommendations(symbol: str, history_months: int = 3) -> Dict[str, Any]:
                 # Price target annotation
                 if curr_pt and prior_pt and curr_pt != prior_pt:
                     try:
-                        direction = "↑" if float(curr_pt) > float(prior_pt) else "↓"
+                        direction = "up" if float(curr_pt) > float(prior_pt) else "down"
                         pt_note = f"${float(curr_pt):.0f}  {direction} from ${float(prior_pt):.0f}"
                     except (ValueError, TypeError):
                         pt_note = f"${curr_pt}"
@@ -595,25 +587,29 @@ def get_recommendations(symbol: str, history_months: int = 3) -> Dict[str, Any]:
                 # Action label
                 action_lower = str(action).lower()
                 if "up" in action_lower:
-                    action_label = "↑ upgraded"
+                    action_label = "upgraded"
                 elif "down" in action_lower:
-                    action_label = "↓ downgraded"
+                    action_label = "downgraded"
                 else:
                     action_label = "(maintains)"
 
                 rating_changes.append({
-                    "date": date.strftime("%b %d"),
+                    "date": date.strftime("%Y-%m-%d"),
                     "firm": firm,
                     "from_grade": from_grade,
                     "to_grade": to_grade,
                     "action_label": action_label,
                     "pt_note": pt_note,
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        changes_failed = True
+        errors.append(f"Failed to fetch rating changes: {e}")
 
     return {
         "symbol": symbol.upper(),
+        "errors": errors,
+        "consensus_failed": consensus_failed,
+        "rating_changes_failed": changes_failed,
         "consensus": consensus_rows,
         "rating_changes": rating_changes,
         "history_months": history_months,
@@ -630,22 +626,25 @@ def format_recommendations(data: Dict[str, Any]) -> str:
         sep,
     ]
 
+    for error in data.get("errors", []):
+        lines.append(f"\n  Error: {error}")
+
     # Consensus table
     if data["consensus"]:
         lines.append("")
         lines.append("  CONSENSUS BREAKDOWN")
         lines.append("")
-        lines.append(f"  {'Period':<10} {'Strong Buy':>10} {'Buy':>5} {'Hold':>6} {'Sell':>6} {'Strong Sell':>12} {'Total':>7}    Verdict")
-        lines.append(f"  {'-'*10} {'-'*10} {'-'*5} {'-'*6} {'-'*6} {'-'*12} {'-'*7}    {'-'*10}")
+        lines.append(f"  {'Period':<10} {'Strong Buy':>10} {'Buy':>5} {'Hold':>6} {'Sell':>6} {'Strong Sell':>12} {'Total':>7}")
+        lines.append(f"  {'-'*10} {'-'*10} {'-'*5} {'-'*6} {'-'*6} {'-'*12} {'-'*7}")
 
         period_labels = {"0m": "Now", "-1m": "-1 Month", "-2m": "-2 Months"}
         for row in data["consensus"]:
             label = period_labels.get(row["period"], row["period"])
             lines.append(
                 f"  {label:<10} {row['strong_buy']:>10} {row['buy']:>5} {row['hold']:>6}"
-                f" {row['sell']:>6} {row['strong_sell']:>12} {row['total']:>7}    → {row['label']}"
+                f" {row['sell']:>6} {row['strong_sell']:>12} {row['total']:>7}"
             )
-    else:
+    elif not data.get("consensus_failed"):
         lines.append("\n  No consensus data available.")
 
     # Rating changes
@@ -655,14 +654,14 @@ def format_recommendations(data: Dict[str, Any]) -> str:
 
     if data["rating_changes"]:
         for chg in data["rating_changes"]:
-            from_g = chg["from_grade"] or "—"
-            to_g   = chg["to_grade"]   or "—"
-            grade_str = f"{from_g:<18} →  {to_g:<18}"
+            from_g = chg["from_grade"] or "-"
+            to_g   = chg["to_grade"]   or "-"
+            grade_str = f"{from_g:<18} -> {to_g:<18}"
             pt = f"  {chg['pt_note']}" if chg["pt_note"] else ""
             lines.append(
-                f"  {chg['date']:<8} {chg['firm']:<22} {grade_str}{pt}  {chg['action_label']}"
+                f"  {chg['date']:<10} {chg['firm']:<22} {grade_str}{pt}  {chg['action_label']}"
             )
-    else:
+    elif not data.get("rating_changes_failed"):
         lines.append("  No rating changes found in this period.")
 
     lines.append(f"\n{sep}\n")
@@ -671,398 +670,113 @@ def format_recommendations(data: Dict[str, Any]) -> str:
 
 # --- Fundamentals Command ---
 
-def _safe_get(df, metric: str) -> Optional[float]:
-    """Extract a scalar value from a DataFrame or Series by partial metric name match."""
-    if df is None:
-        return None
-    if isinstance(df, pd.Series):
-        for name in df.index:
-            if metric.lower() in str(name).lower():
-                try:
-                    val = df[name]
-                    return float(val) if pd.notna(val) else None
-                except Exception:
-                    return None
-        return None
-    if df.empty:
-        return None
-    for name in df.index:
-        if metric.lower() in str(name).lower():
-            try:
-                val = df.loc[name].iloc[0]
-                return float(val) if pd.notna(val) else None
-            except Exception:
-                return None
-    return None
-
-
-def _col_series(df, metric: str, n: int = 4) -> List[float]:
-    """Get up to n annual values for a metric from a DataFrame, newest first."""
-    if df is None or isinstance(df, pd.Series) or df.empty:
+def _statement_values(statement, metric: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """Return dated values using exact row names; preserve missing fiscal periods."""
+    if statement is None or statement.empty:
         return []
-    for name in df.index:
-        if metric.lower() in str(name).lower():
-            try:
-                return [float(v) for v in df.loc[name].iloc[:n] if pd.notna(v)]
-            except Exception:
-                return []
-    return []
-
-
-def _cagr(start: float, end: float, years: int) -> Optional[float]:
-    if not start or not end or years <= 0 or start <= 0:
-        return None
-    try:
-        return (end / start) ** (1 / years) - 1
-    except Exception:
-        return None
-
-
-def _dots(score: float, max_score: float, total: int = 5) -> str:
-    filled = round(max(0.0, min(score, max_score)) / max_score * total)
-    return "●" * filled + "○" * (total - filled)
+    values = []
+    for date in statement.columns[:limit]:
+        value = statement.loc[metric, date] if metric in statement.index else None
+        values.append({
+            "period": date.strftime("%Y-%m-%d"),
+            "value": float(value) if value is not None and pd.notna(value) else None,
+        })
+    return values
 
 
 def get_fundamentals(symbol: str) -> Dict[str, Any]:
-    """Fetch raw fundamental data for scoring."""
+    """Fetch a factual financial snapshot without scoring or investment verdicts."""
     ticker = yf.Ticker(symbol)
-    info = ticker.info or {}
-
     try:
-        income   = ticker.income_stmt
-        balance  = ticker.balance_sheet
+        income = ticker.income_stmt
+        balance = ticker.balance_sheet
         cashflow = ticker.cashflow
-        ttm_inc  = ticker.ttm_income_stmt
-        ttm_cf   = ticker.ttm_cashflow
+        ttm_income = ticker.ttm_income_stmt
+        ttm_cashflow = ticker.ttm_cashflow
     except Exception as e:
-        return {"error": f"Failed to fetch data: {str(e)}"}
+        return {"error": f"Failed to fetch fundamentals for {symbol}: {e}"}
 
-    # TTM scalars
-    ttm_revenue   = _safe_get(ttm_inc, "Total Revenue")
-    ttm_gross     = _safe_get(ttm_inc, "Gross Profit")
-    ttm_op_income = _safe_get(ttm_inc, "Operating Income")
-    ttm_net       = _safe_get(ttm_inc, "Net Income")
-    ttm_fcf       = _safe_get(ttm_cf,  "Free Cash Flow")
+    metrics = []
+    for label, metric, annual, ttm in [
+        ("Revenue", "Total Revenue", income, ttm_income),
+        ("Gross Profit", "Gross Profit", income, ttm_income),
+        ("Operating Income", "Operating Income", income, ttm_income),
+        ("Net Income", "Net Income", income, ttm_income),
+        ("Free Cash Flow", "Free Cash Flow", cashflow, ttm_cashflow),
+    ]:
+        latest = _statement_values(ttm, metric, 1)
+        metrics.append({
+            "label": label,
+            "ttm": latest[0] if latest else None,
+            "annual": _statement_values(annual, metric),
+        })
 
-    # Annual series (newest → oldest)
-    rev_series  = _col_series(income,   "Total Revenue")
-    ni_series   = _col_series(income,   "Net Income")
-    gp_series   = _col_series(income,   "Gross Profit")
-    oi_series   = _col_series(income,   "Operating Income")
-    debt_series = _col_series(balance,  "Total Debt")
-    eq_series   = _col_series(balance,  "Stockholders Equity")
-    ca_series   = _col_series(balance,  "Current Assets")
-    cl_series   = _col_series(balance,  "Current Liabilities")
-    fcf_series  = _col_series(cashflow, "Free Cash Flow")
+    balance_metrics = []
+    for label, metric in [
+        ("Cash", "Cash And Cash Equivalents"),
+        ("Total Debt", "Total Debt"),
+    ]:
+        latest = _statement_values(balance, metric, 1)
+        balance_metrics.append({
+            "label": label,
+            "latest": latest[0] if latest else None,
+        })
 
-    # TTM period label
-    ttm_label = "TTM"
-    src = ttm_inc if ttm_inc is not None else None
-    if src is not None:
-        try:
-            cols = src.columns if hasattr(src, "columns") else []
-            if len(cols):
-                ttm_label = f"TTM {cols[0].strftime('%b %Y')}"
-        except Exception:
-            pass
-
-    # Fiscal year labels from income columns
-    fy_labels = []
-    if income is not None and not income.empty:
-        try:
-            fy_labels = [str(c.year) for c in income.columns[:4]]
-        except Exception:
-            pass
+    if not any(
+        entry["value"] is not None
+        for metric in metrics
+        for entry in ([metric["ttm"]] if metric["ttm"] else []) + metric["annual"]
+    ) and not any(
+        metric["latest"] and metric["latest"]["value"] is not None
+        for metric in balance_metrics
+    ):
+        return {"error": f"No fundamental data found for {symbol}"}
 
     return {
         "symbol": symbol.upper(),
-        "company_name": info.get("longName", ""),
-        "ttm_label": ttm_label,
-        "fy_labels": fy_labels,
-        "ttm_revenue": ttm_revenue,
-        "ttm_gross": ttm_gross,
-        "ttm_op_income": ttm_op_income,
-        "ttm_net": ttm_net,
-        "ttm_fcf": ttm_fcf,
-        "rev_series": rev_series,
-        "ni_series": ni_series,
-        "gp_series": gp_series,
-        "oi_series": oi_series,
-        "fcf_series": fcf_series,
-        "total_debt": debt_series[0] if debt_series else None,
-        "equity": eq_series[0] if eq_series else None,
-        "curr_assets": ca_series[0] if ca_series else None,
-        "curr_liab": cl_series[0] if cl_series else None,
-        "debt_series": debt_series,
+        "financials": metrics,
+        "balance_sheet": balance_metrics,
     }
 
 
-def score_fundamentals(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Compute four-pillar 0-100 health score."""
-
-    def scale(value, threshold, max_pts):
-        if value is None:
-            return 0.0
-        return min(value / threshold, 1.0) * max_pts
-
-    r = raw["ttm_revenue"]
-
-    # ── Pillar 1: Profitability (max 25) ──────────────────────────
-    gm = (raw["ttm_gross"]     / r) if r and raw["ttm_gross"]     else None
-    nm = (raw["ttm_net"]       / r) if r and raw["ttm_net"]       else None
-    om = (raw["ttm_op_income"] / r) if r and raw["ttm_op_income"] else None
-
-    def _avg_margin(num_series, den_series, n=3):
-        if len(num_series) >= n and len(den_series) >= n:
-            vals = [num_series[i] / den_series[i] for i in range(n) if den_series[i]]
-            return sum(vals) / len(vals) if vals else None
-        return None
-
-    gm_3yr = _avg_margin(raw["gp_series"], raw["rev_series"])
-    margin_delta = (gm - gm_3yr) if gm is not None and gm_3yr is not None else None
-    margin_improving = margin_delta is not None and margin_delta > 0
-
-    p1_gm    = scale(gm, 0.50, 8)
-    p1_nm    = scale(nm, 0.20, 8)
-    p1_om    = scale(om, 0.25, 8)
-    p1_trend = 1 if margin_improving else 0
-    p1_total = min(round(p1_gm + p1_nm + p1_om + p1_trend), 25)
-
-    # ── Pillar 2: Growth (max 25) ──────────────────────────────────
-    rev = raw["rev_series"]
-    ni  = raw["ni_series"]
-
-    n_rev  = min(3, len(rev) - 1)
-    n_ni   = min(3, len(ni)  - 1)
-    rev_cagr = _cagr(rev[n_rev], rev[0], n_rev) if n_rev > 0 else None
-    ni_cagr  = _cagr(ni[n_ni],  ni[0],  n_ni)  if n_ni  > 0 else None
-
-    yoy_rev_accel = None
-    if len(rev) >= 2 and rev[1]:
-        yoy_cur = (rev[0] - rev[1]) / abs(rev[1])
-        if len(rev) >= 3 and rev[2]:
-            yoy_prev      = (rev[1] - rev[2]) / abs(rev[2])
-            yoy_rev_accel = yoy_cur - yoy_prev
-        else:
-            yoy_rev_accel = yoy_cur
-
-    p2_rev   = scale(rev_cagr, 0.15, 10) if rev_cagr and rev_cagr > 0 else 0
-    p2_ni    = scale(ni_cagr,  0.15, 10) if ni_cagr  and ni_cagr  > 0 else 0
-    if yoy_rev_accel is not None:
-        if yoy_rev_accel > 0.05:
-            p2_accel = min(yoy_rev_accel / 0.10 * 5, 5)
-        elif yoy_rev_accel < -0.05:
-            p2_accel = max(yoy_rev_accel / 0.10 * 2, -2)
-        else:
-            p2_accel = 0
-    else:
-        p2_accel = 0
-    p2_total = min(max(round(p2_rev + p2_ni + p2_accel), 0), 25)
-
-    # ── Pillar 3: Financial Health (max 25) ────────────────────────
-    de_ratio   = None
-    curr_ratio = None
-    if raw["total_debt"] is not None and raw["equity"]:
-        de_ratio = raw["total_debt"] / raw["equity"] if raw["equity"] != 0 else None
-    if raw["curr_assets"] is not None and raw["curr_liab"]:
-        curr_ratio = raw["curr_assets"] / raw["curr_liab"] if raw["curr_liab"] != 0 else None
-
-    if de_ratio is None:
-        p3_de = 0
-    elif de_ratio <= 0.5:
-        p3_de = 10
-    else:
-        p3_de = max(0.0, 10 - (de_ratio - 0.5) / 2.5 * 10)
-
-    p3_cr = scale(curr_ratio, 2.0, 10) if curr_ratio is not None else 0
-
-    debt_declining = False
-    debt_trend_pts = 0
-    ds = raw["debt_series"]
-    if ds and len(ds) >= 3:
-        if ds[0] < ds[2]:
-            debt_declining = True
-            debt_trend_pts = 5
-        elif ds[0] > ds[2]:
-            debt_trend_pts = -2
-
-    p3_total = min(max(round(p3_de + p3_cr + debt_trend_pts), 0), 25)
-
-    # ── Pillar 4: Cash Generation (max 25) ────────────────────────
-    fcf = raw["ttm_fcf"]
-    fcf_margin   = (fcf / r) if fcf is not None and r else None
-    fcf_pos_cnt  = sum(1 for v in raw["fcf_series"][:3] if v and v > 0)
-    fcf_quality  = (fcf / raw["ttm_net"]) if fcf is not None and raw["ttm_net"] else None
-
-    p4_margin      = scale(fcf_margin,  0.20, 10) if fcf_margin  and fcf_margin  > 0 else 0
-    p4_consistency = (fcf_pos_cnt / 3) * 10
-    p4_quality     = scale(fcf_quality, 0.80,  5) if fcf_quality and fcf_quality > 0 else 0
-    p4_total       = min(round(p4_margin + p4_consistency + p4_quality), 25)
-
-    total_score = p1_total + p2_total + p3_total + p4_total
-
-    return {
-        "symbol":       raw["symbol"],
-        "company_name": raw["company_name"],
-        "ttm_label":    raw["ttm_label"],
-        "fy_labels":    raw["fy_labels"],
-        "total_score":  total_score,
-        "pillars": {
-            "profitability": {
-                "score": p1_total,
-                "metrics": {
-                    "gross_margin":     {"label": "Gross Margin",     "value": gm,            "score": p1_gm,    "max": 8,  "fmt": "pct_ttm"},
-                    "net_margin":       {"label": "Net Margin",       "value": nm,            "score": p1_nm,    "max": 8,  "fmt": "pct_ttm"},
-                    "operating_margin": {"label": "Operating Margin", "value": om,            "score": p1_om,    "max": 8,  "fmt": "pct_ttm"},
-                    "margin_trend":     {"label": "Margin Trend",     "value": margin_delta,  "score": p1_trend, "max": 1,  "fmt": "trend"},
-                },
-            },
-            "growth": {
-                "score": p2_total,
-                "metrics": {
-                    "revenue_cagr": {"label": "Revenue CAGR",    "value": rev_cagr,      "score": p2_rev,   "max": 10, "fmt": "cagr"},
-                    "ni_cagr":      {"label": "Net Income CAGR", "value": ni_cagr,       "score": p2_ni,    "max": 10, "fmt": "cagr"},
-                    "yoy_accel":    {"label": "YoY Acceleration","value": yoy_rev_accel, "score": p2_accel, "max": 5,  "fmt": "accel"},
-                },
-            },
-            "financial_health": {
-                "score": p3_total,
-                "metrics": {
-                    "debt_equity":   {"label": "Debt-to-Equity", "value": de_ratio,      "score": p3_de,         "max": 10, "fmt": "ratio"},
-                    "current_ratio": {"label": "Current Ratio",  "value": curr_ratio,    "score": p3_cr,         "max": 10, "fmt": "ratio"},
-                    "debt_trend":    {"label": "Debt Trend",     "value": debt_declining,"score": debt_trend_pts,"max": 5,  "fmt": "debt_trend"},
-                },
-            },
-            "cash_generation": {
-                "score": p4_total,
-                "metrics": {
-                    "fcf_margin":      {"label": "FCF Margin",      "value": fcf_margin,   "score": p4_margin,      "max": 10, "fmt": "pct_ttm"},
-                    "fcf_consistency": {"label": "FCF Consistency", "value": fcf_pos_cnt,  "score": p4_consistency, "max": 10, "fmt": "consistency"},
-                    "fcf_quality":     {"label": "FCF Quality",     "value": fcf_quality,  "score": p4_quality,     "max": 5,  "fmt": "ratio"},
-                },
-            },
-        },
-        "raw": raw,
-    }
-
-
-def format_fundamentals(data: Dict[str, Any], raw_only: bool = False, as_json: bool = False) -> str:
-    """Format fundamentals output."""
+def format_fundamentals(data: Dict[str, Any], as_json: bool = False) -> str:
+    """Display a compact snapshot, preserving each statement's period labels."""
+    if as_json:
+        import json
+        return json.dumps(data, indent=2)
     if "error" in data:
         return f"Error: {data['error']}"
 
-    if as_json:
-        import json
-        out = {k: v for k, v in data.items() if k != "raw"}
-        return json.dumps(out, indent=2, default=str)
-
-    scored = data  # already scored dict
-    symbol  = scored["symbol"]
-    name    = scored["company_name"]
-    score   = scored["total_score"]
-    ttm     = scored["ttm_label"]
-    sep     = "=" * 60
-    thin    = "─" * 49
-
-    if raw_only:
-        raw = scored["raw"]
-        lines = [f"\n{symbol}  Raw Fundamentals\n{sep}\n"]
-        def _fmt_b(v):
-            if v is None: return "N/A"
-            return f"${v/1e9:.2f}B"
-        def _fmt_p(v):
-            if v is None: return "N/A"
-            return f"{v*100:.1f}%"
-        rev = raw["rev_series"]
-        ni  = raw["ni_series"]
-        fy  = raw["fy_labels"]
-        lines.append(f"  {'Metric':<22} {'TTM':>12} " + "  ".join(f"{l:>12}" for l in fy[:3]))
-        lines.append(f"  {'-'*22} {'-'*12} " + "  ".join(f"{'-'*12}" for _ in fy[:3]))
-        rows = [
-            ("Revenue",       raw["ttm_revenue"],   raw["rev_series"]),
-            ("Gross Profit",  raw["ttm_gross"],      raw["gp_series"]),
-            ("Op. Income",    raw["ttm_op_income"],  raw["oi_series"]),
-            ("Net Income",    raw["ttm_net"],        raw["ni_series"]),
-            ("Free Cash Flow",raw["ttm_fcf"],        raw["fcf_series"]),
-        ]
-        for label, ttm_val, series in rows:
-            annual_cols = "  ".join(f"{_fmt_b(v):>12}" for v in series[:3])
-            lines.append(f"  {label:<22} {_fmt_b(ttm_val):>12}   {annual_cols}")
-        de_str = f"{raw['total_debt']/raw['equity']:.2f}" if raw['total_debt'] and raw['equity'] else 'N/A'
-        cr_str = f"{raw['curr_assets']/raw['curr_liab']:.2f}" if raw['curr_assets'] and raw['curr_liab'] else 'N/A'
-        lines.append(f"\n  {'Debt-to-Equity':<22} {de_str:>12}")
-        lines.append(f"  {'Current Ratio':<22} {cr_str:>12}")
-        lines.append(f"\n{sep}\n")
-        return "\n".join(lines)
+    def amount(entry):
+        if entry is None or entry["value"] is None:
+            return "N/A"
+        return f'{entry["value"] / 1e9:,.2f}B'
 
     lines = [
-        f"\n{sep}",
-        f"  {symbol}  -  {name}",
-        f"  Fundamental Health Score: {score}/100",
-        sep,
+        f"\n{data['symbol']}  Financial Snapshot",
+        "=" * 60,
+        "  Amounts in billions of reported currency; TTM = trailing twelve months.",
         "",
     ]
-
-    pillar_order = [
-        ("profitability",   "PROFITABILITY"),
-        ("growth",          "GROWTH"),
-        ("financial_health","FINANCIAL HEALTH"),
-        ("cash_generation", "CASH GENERATION"),
-    ]
-
-    for pillar_key, pillar_name in pillar_order:
-        pillar = scored["pillars"][pillar_key]
-        pscore = pillar["score"]
-        pdots  = _dots(pscore, 25, 5)
-
-        lines.append(f"  {pillar_name:<38} {pscore:>2}/25   {pdots}")
-        lines.append(f"  {thin}")
-
-        for m in pillar["metrics"].values():
-            label  = m["label"]
-            value  = m["value"]
-            fmt    = m["fmt"]
-            mscore = m["score"]
-            mmax   = m["max"]
-
-            if value is None:
-                val_str = "N/A"
-            elif fmt == "pct_ttm":
-                val_str = f"{value*100:.1f}%   ({ttm})"
-            elif fmt == "cagr":
-                val_str = f"3yr  {value*100:+.1f}%"
-            elif fmt == "ratio":
-                val_str = f"{value:.2f}"
-            elif fmt == "trend":
-                direction = "Improving" if value > 0 else "Declining"
-                val_str   = f"{direction}  ({value*100:+.1f}% vs 3yr avg)"
-            elif fmt == "accel":
-                if abs(value) <= 0.02:
-                    direction = "Stable"
-                elif value > 0:
-                    direction = "Accelerating"
-                else:
-                    direction = "Decelerating"
-                val_str = f"Revenue {direction} ({value*100:+.1f}%)"
-            elif fmt == "debt_trend":
-                val_str = "Declining 3 years" if value else "Increasing / Flat"
-            elif fmt == "consistency":
-                val_str = f"Positive {int(value)}/3 years"
-            else:
-                val_str = str(value)
-
-            mdots = _dots(max(mscore, 0), mmax, 5)
-            lines.append(f"  {label:<20} {val_str:<34} {mdots}")
-
+    # Statement dates can differ: group only metrics with identical dates.
+    groups = {}
+    for metric in data["financials"]:
+        dates = tuple(entry["period"] for entry in metric["annual"])
+        ttm_date = metric["ttm"]["period"] if metric["ttm"] else None
+        groups.setdefault((ttm_date, dates), []).append(metric)
+    for (ttm_date, dates), metrics in groups.items():
+        headers = [f"TTM {ttm_date}" if ttm_date else "TTM (unavailable)", *dates]
+        lines.append(f"  {'Metric':<20}" + "".join(f"{header:>20}" for header in headers))
+        for metric in metrics:
+            entries = [metric["ttm"], *metric["annual"]]
+            lines.append(f"  {metric['label']:<20}" + "".join(f"{amount(entry):>20}" for entry in entries))
         lines.append("")
 
-    fy = scored["fy_labels"]
-    fy_range = f"Annual FY{fy[-1]}–FY{fy[0]}" if fy else "Annual"
-    lines.append(sep)
-    lines.append(f"  Data: {fy_range} + {ttm}")
-    lines.append(f"{sep}\n")
-
-    return "\n".join(lines)
+    for metric in data["balance_sheet"]:
+        latest = metric["latest"]
+        date = latest["period"] if latest else "date unavailable"
+        lines.append(f"  {metric['label']:<20} {amount(latest):>12}  ({date})")
+    return "\n".join(lines) + "\n"
 
 
 # --- CLI Entry Point ---
@@ -1102,9 +816,8 @@ def main():
     chart_parser.add_argument("--background", "-b", choices=["transparent", "white", "black"], default="white", help="Background color (default: white)")
 
     # fundamentals command
-    fund_parser = subparsers.add_parser("fundamentals", help="Four-pillar fundamental health score (0-100)")
+    fund_parser = subparsers.add_parser("fundamentals", help="Compact financial snapshot (no scoring)")
     fund_parser.add_argument("symbol", help="Stock ticker symbol (e.g., AAPL)")
-    fund_parser.add_argument("--raw",  action="store_true", help="Print underlying numbers without scoring")
     fund_parser.add_argument("--json", action="store_true", dest="as_json", help="Output as JSON for agent/LLM use")
 
     # recommendations command
@@ -1137,13 +850,16 @@ def main():
         print(format_history(data))
 
     elif args.command == "fundamentals":
-        raw  = get_fundamentals(args.symbol)
-        data = score_fundamentals(raw) if "error" not in raw else raw
-        print(format_fundamentals(data, raw_only=args.raw, as_json=args.as_json))
+        data = get_fundamentals(args.symbol)
+        print(format_fundamentals(data, as_json=args.as_json))
+        if "error" in data:
+            sys.exit(1)
 
     elif args.command == "recommendations":
         data = get_recommendations(args.symbol, history_months=args.history)
         print(format_recommendations(data))
+        if data["errors"]:
+            sys.exit(1)
 
     elif args.command == "news":
         data = get_news(args.query, count=args.count)
