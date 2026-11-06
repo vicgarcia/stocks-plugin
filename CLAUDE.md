@@ -17,19 +17,20 @@ stocks.py/
 ├── .claude-plugin/
 │   ├── plugin.json        # Plugin manifest (plugin `stocks`)
 │   └── marketplace.json   # Single-plugin marketplace (`stocks-py`, source ".")
-├── scripts/
-│   └── stocks.py          # The entire CLI — single file, all commands
+├── skills/stocks/
+│   ├── SKILL.md           # Agent-facing reference (commands, options, output semantics)
+│   └── scripts/
+│       └── stocks.py      # The entire CLI — single file, all commands
 ├── tests/test_stocks.py
-├── SKILL.md               # Agent-facing reference (commands, options, output semantics)
 ├── README.md              # Human-facing docs (installation, usage, examples)
 └── CLAUDE.md              # This file
 ```
 
-The repo root is the plugin: a plugin with `SKILL.md` at its root and no `skills/` loads as a single skill. SKILL.md runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, and its `allowed-tools` rule matches that exact command, so keep the two in sync. Cowork runs it in a cloud sandbox: PyPI is reachable by default, but the Yahoo domains in `compatibility` have to be allowed, and nothing served on localhost reaches the user. The release zip (`.github/workflows/release.yml`) is the same plugin, for upload.
+The repo root is the plugin, and the skill lives in the standard `skills/<name>/` layout. Don't move `SKILL.md` to the root: Cowork then installs the skill without `scripts/`. SKILL.md runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, and its `allowed-tools` rule matches that exact command, so keep the two in sync. Cowork runs it in a cloud sandbox: PyPI is reachable by default, but the Yahoo domains in `compatibility` have to be allowed, and nothing served on localhost reaches the user. The release zip (`.github/workflows/release.yml`) is the same plugin, for upload.
 
 ---
 
-## The CLI Tool (`scripts/stocks.py`)
+## The CLI Tool (`skills/stocks/scripts/stocks.py`)
 
 ### Execution Model
 
@@ -47,7 +48,7 @@ Uses the `uv run --script` shebang pattern (PEP 723) with inline dependency decl
 # ///
 ```
 
-Run directly: `uv run --script scripts/stocks.py <command>` or, if installed in PATH, `stocks.py <command>`.
+Run directly: `uv run --script skills/stocks/scripts/stocks.py <command>` or, if installed in PATH, `stocks.py <command>`.
 
 ### Code Structure
 

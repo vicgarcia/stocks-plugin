@@ -30,10 +30,10 @@ An agent skill for stock market data and analysis, backed by a single-file CLI t
 git clone https://github.com/vicgarcia/stocks.py
 
 # Run directly (dependencies auto-installed)
-uv run --script scripts/stocks.py --help
+uv run --script skills/stocks/scripts/stocks.py --help
 
 # Install in PATH
-cp scripts/stocks.py ~/.local/bin/stocks.py
+cp skills/stocks/scripts/stocks.py ~/.local/bin/stocks.py
 chmod +x ~/.local/bin/stocks.py
 stocks.py --help
 ```
@@ -260,11 +260,10 @@ With `--json`, an agent can collect the dated financial snapshot alongside analy
 
 ## Agent Skill
 
-This project includes a `SKILL.md` file for use with AI agents. For Claude, install it as a plugin (see Installation). For other agents, copy `SKILL.md` and `scripts/` into a skill directory:
+The skill lives in `skills/stocks/` (`SKILL.md` plus `scripts/`). For Claude, install it as a plugin (see Installation). For other agents, copy that folder into their skills directory:
 
 ```bash
-mkdir -p /path/to/agent/skills/stocks
-cp -r SKILL.md scripts/ /path/to/agent/skills/stocks/
+cp -r skills/stocks /path/to/agent/skills/
 ```
 
 `SKILL.md` runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`. Claude fills in `${CLAUDE_SKILL_DIR}`; for other agents, replace it with the skill directory's path.

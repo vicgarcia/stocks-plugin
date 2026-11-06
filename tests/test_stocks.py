@@ -8,7 +8,7 @@ from unittest.mock import patch, PropertyMock, Mock
 import pandas as pd
 
 spec = importlib.util.spec_from_file_location(
-    "stocks", Path(__file__).resolve().parents[1] / "scripts" / "stocks.py"
+    "stocks", Path(__file__).resolve().parents[1] / "skills" / "stocks" / "scripts" / "stocks.py"
 )
 stocks = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stocks)
