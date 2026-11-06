@@ -22,11 +22,14 @@ jobs:
       - name: Create release zip
         run: |
           zip -r stocks-v${{ steps.version.outputs.version }}.zip .claude-plugin/plugin.json skills/stocks/SKILL.md skills/stocks/scripts/stocks.py
+          cd skills && zip -r ../stocks-skill-v${{ steps.version.outputs.version }}.zip stocks/SKILL.md stocks/scripts/stocks.py
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
-          files: stocks-v${{ steps.version.outputs.version }}.zip
+          files: |
+            stocks-v${{ steps.version.outputs.version }}.zip
+            stocks-skill-v${{ steps.version.outputs.version }}.zip
           generate_release_notes: true

@@ -42,7 +42,7 @@ stocks.py --help
 
 The repo is a plugin marketplace with one plugin, `stocks`.
 
-- **Cowork / Claude Desktop:** Customize > Plugins > Add > Add marketplace, enter `vicgarcia/stocks.py`, then add the `stocks` plugin. Or download `stocks-v*.zip` from [Releases](https://github.com/vicgarcia/stocks.py/releases) and upload it as a custom plugin.
+- **Cowork / Claude Desktop:** Customize > Plugins > Add > Add marketplace, enter `vicgarcia/stocks.py`, then add the `stocks` plugin. Or download `stocks-v*.zip` from [Releases](https://github.com/vicgarcia/stocks.py/releases) and upload it as a custom plugin, or upload `stocks-skill-v*.zip` under Customize > Skills to add just the skill.
 - **Claude Code:** `/plugin marketplace add vicgarcia/stocks.py`, then `/plugin install stocks@stocks-py`.
 
 The skill runs the script with `uv run --script`, so the environment needs uv and network access to PyPI (for the dependencies) and Yahoo Finance (`query1.finance.yahoo.com`, `query2.finance.yahoo.com`, `fc.yahoo.com`, `finance.yahoo.com`). Cowork's sandbox allows package managers by default, but not Yahoo: add those domains under Settings > Capabilities (on Team and Enterprise, the organization's network egress allowlist), then start a new session. The interactive chart needs a local machine with a browser. In a sandbox, Claude uses `chart --json` instead.
