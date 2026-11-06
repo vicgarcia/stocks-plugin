@@ -1,6 +1,6 @@
 # stocks.py
 
-An agent skill for stock market data and analysis, backed by a single-file CLI tool written in Python powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and generate publication-ready PNG charts.
+An agent skill for stock market data and analysis, backed by a single-file CLI tool written in Python powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and open interactive charts in the browser or save them as PNGs.
 
 ![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks.py/main/chart_example.png)
 
@@ -14,7 +14,7 @@ An agent skill for stock market data and analysis, backed by a single-file CLI t
 - **Fundamentals** - Compact dated financial snapshot of income, free cash flow, cash, and debt
 - **Ticker search** - Find symbols by company name
 - **Historical data** - OHLCV data with configurable periods and intervals
-- **PNG charts** - Candlestick and line charts with transparent/white/black backgrounds
+- **Interactive charts** - Candlestick or line chart served on localhost, with quote stats, range buttons, moving average toggles, a crosshair readout, and light/dark themes; `--png` saves a screenshot of it
 
 ## Prerequisites
 
@@ -38,10 +38,14 @@ chmod +x ~/.local/bin/stocks.py
 stocks.py --help
 ```
 
-### Install for Claude Desktop
+### Install as a Claude plugin (Cowork, Claude Code)
 
-Download `stocks-v*.zip` from [Releases](https://github.com/vicgarcia/stocks.py/releases).
-Install in Claude Desktop as a skill.
+The repo is a plugin marketplace with one plugin, `stocks`.
+
+- **Cowork / Claude Desktop:** Customize > Plugins > Add > Add marketplace, enter `vicgarcia/stocks.py`, then add the `stocks` plugin. Or download `stocks-v*.zip` from [Releases](https://github.com/vicgarcia/stocks.py/releases) and upload it as a custom plugin.
+- **Claude Code:** `/plugin marketplace add vicgarcia/stocks.py`, then `/plugin install stocks@stocks-py`.
+
+The skill runs the script with `uv run --script`, so the environment needs uv and network access to PyPI (for the dependencies) and Yahoo Finance (`query1.finance.yahoo.com`, `query2.finance.yahoo.com`, `fc.yahoo.com`, `finance.yahoo.com`). Cowork's sandbox allows package managers by default, but not Yahoo: add those domains under Settings > Capabilities (on Team and Enterprise, the organization's network egress allowlist), then start a new session. The interactive chart needs a local machine with a browser. In a sandbox, Claude uses `chart --json` instead.
 
 ## Commands
 
@@ -53,7 +57,9 @@ Install in Claude Desktop as a skill.
 | `recommendations` | Analyst counts and dated rating/price-target changes |
 | `fundamentals` | Compact dated financial snapshot |
 | `history` | Get historical OHLCV data |
-| `chart` | Generate PNG chart |
+| `chart` | Serve an interactive chart on localhost, or save a PNG of it |
+
+Add `--json` to any command except the chart server to get the data as JSON instead of formatted text, for scripts and agents. For example, `stocks.py quote AAPL --json`. Failures print `{"error": "..."}` and exit with status 1.
 
 ## Usage
 
@@ -68,13 +74,9 @@ stocks.py news TSLA --count 10
 stocks.py news "oil prices"
 stocks.py news "Federal Reserve interest rates"
 stocks.py news "semiconductor tariffs"
-
-# Show full article summaries
-stocks.py news NVDA --summary
-stocks.py news "AI chips" -s -n 3
 ```
 
-Output includes headline, publisher, timestamp, and URL for each article. Add `--summary` to show the full article summary paragraph.
+Output includes headline, publisher, timestamp, and URL for each article.
 
 ### Analyst Recommendations
 
@@ -150,22 +152,24 @@ stocks.py history NVDA --period 5d --interval 1h
 
 ### Generate Charts
 
+`chart` starts a small web server on `127.0.0.1` and opens the chart in your browser. The page can switch ranges (1D to Max), candles and line, moving averages, and theme; other ranges are fetched live. Press Ctrl+C to stop it.
+
 ```bash
-# Default: 6-month candlestick, white background
+# Interactive 6-month candlestick chart
 stocks.py chart AAPL
 
-# Black background
-stocks.py chart MSFT --background black
+# Start on 1 year with the 50 and 200-day moving averages, dark theme
+stocks.py chart MSFT --period 1y --ma 50 200 --theme dark
 
-# Transparent background
-stocks.py chart TSLA --background transparent
+# Save a PNG instead (needs Chrome, Edge or Chromium)
+stocks.py chart NVDA --png nvda.png
+stocks.py chart TSLA --type line --size 1600x900 --png tsla.png
 
-# Line chart
-stocks.py chart NVDA --type line
-
-# Custom options
-stocks.py chart AMD --period 1y --width 1400 --height 900 --ma 20 50 200 --output amd.png
+# Print the bars as JSON
+stocks.py chart AMD --period 5d --json
 ```
+
+`--png` loads the same page in headless Chrome, Edge or Chromium and screenshots it. Set `STOCKS_BROWSER` to the browser's path if it isn't found.
 
 ## Command Options
 
@@ -175,7 +179,6 @@ stocks.py chart AMD --period 1y --width 1400 --height 900 --ma 20 50 200 --outpu
 |--------|---------|-------------|
 | `query` | required | Ticker symbol or any search query string |
 | `--count`, `-n` | 5 | Number of articles to return |
-| `--summary`, `-s` | off | Show full summary paragraph |
 
 ### Recommendations Command
 
@@ -217,13 +220,16 @@ stocks.py chart AMD --period 1y --width 1400 --height 900 --ma 20 50 200 --outpu
 | Option | Default | Description |
 |--------|---------|-------------|
 | `symbol` | required | Stock ticker symbol |
-| `--period`, `-p` | 6mo | Data period |
+| `--period`, `-p` | 6mo | Starting period: 1d, 5d, 1mo, 3mo, 6mo, ytd, 1y, 2y, 5y, 10y, max |
+| `--interval`, `-i` | per period | Bar interval: 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo |
 | `--type`, `-t` | candlestick | Chart type: candlestick, line |
-| `--output`, `-o` | auto | Output file path |
-| `--width` | 1200 | Width in pixels |
-| `--height` | 800 | Height in pixels |
-| `--ma` | 20 50 200 | Moving average periods |
-| `--background`, `-b` | white | Background: white, black, transparent |
+| `--ma` | none | Moving averages shown at start (20, 50, 200 are always toggleable) |
+| `--theme` | light | Color theme: light, dark |
+| `--port` | 8767 | Port to serve on; falls back to a free port if taken |
+| `--no-open` | off | Don't open a browser |
+| `--png FILE` | - | Save a screenshot instead of serving |
+| `--size` | 1200x800 | Screenshot size for `--png` |
+| `--json` | off | Print the chart data as JSON instead of serving |
 
 ## Agent Research Workflow
 
@@ -234,13 +240,13 @@ These three commands provide factual inputs for agent research:
 stocks.py fundamentals AAPL --json
 
 # 2. Recommendations — Analyst counts and dated rating/price-target changes
-stocks.py recommendations AAPL
+stocks.py recommendations AAPL --json
 
 # 3. News — What is happening right now? (real-time context)
-stocks.py news AAPL --count 10
+stocks.py news AAPL --count 10 --json
 ```
 
-With `--json` on `fundamentals`, an agent can collect the dated financial snapshot alongside analyst records and news. These commands supply data, not computed investment verdicts or business-quality rankings.
+With `--json`, an agent can collect the dated financial snapshot alongside analyst records and news. These commands supply data, not computed investment verdicts or business-quality rankings.
 
 ## Moving Averages
 
@@ -254,24 +260,14 @@ With `--json` on `fundamentals`, an agent can collect the dated financial snapsh
 
 ## Agent Skill
 
-This project includes a `SKILL.md` file for use with AI coding agents.
-
-### Installation
+This project includes a `SKILL.md` file for use with AI agents. For Claude, install it as a plugin (see Installation). For other agents, copy `SKILL.md` and `scripts/` into a skill directory:
 
 ```bash
-# Create skills directory
 mkdir -p /path/to/agent/skills/stocks
-
-# Copy skill files
-cp SKILL.md /path/to/agent/skills/stocks/
-cp -r scripts/ /path/to/agent/skills/stocks/
-
-# Ensure stocks.py is in PATH
-cp scripts/stocks.py ~/.local/bin/
-chmod +x ~/.local/bin/stocks.py
+cp -r SKILL.md scripts/ /path/to/agent/skills/stocks/
 ```
 
-The agent reads `SKILL.md` to understand available commands, parameters, and how to interpret stock data.
+`SKILL.md` runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`. Claude fills in `${CLAUDE_SKILL_DIR}`; for other agents, replace it with the skill directory's path.
 
 ## Ticker Symbol Reference
 

@@ -14,12 +14,18 @@ The project has two distinct consumers:
 
 ```
 stocks.py/
+├── .claude-plugin/
+│   ├── plugin.json        # Plugin manifest (plugin `stocks`)
+│   └── marketplace.json   # Single-plugin marketplace (`stocks-py`, source ".")
 ├── scripts/
 │   └── stocks.py          # The entire CLI — single file, all commands
-├── SKILL.md             # Agent-facing reference (commands, options, output semantics)
-├── README.md            # Human-facing docs (installation, usage, examples)
-└── CLAUDE.md            # This file
+├── tests/test_stocks.py
+├── SKILL.md               # Agent-facing reference (commands, options, output semantics)
+├── README.md              # Human-facing docs (installation, usage, examples)
+└── CLAUDE.md              # This file
 ```
+
+The repo root is the plugin: a plugin with `SKILL.md` at its root and no `skills/` loads as a single skill. SKILL.md runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, and its `allowed-tools` rule matches that exact command, so keep the two in sync. Cowork runs it in a cloud sandbox: PyPI is reachable by default, but the Yahoo domains in `compatibility` have to be allowed, and nothing served on localhost reaches the user. The release zip (`.github/workflows/release.yml`) is the same plugin, for upload.
 
 ---
 
@@ -34,10 +40,9 @@ Uses the `uv run --script` shebang pattern (PEP 723) with inline dependency decl
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "yfinance>=0.2.0",
+#     "yfinance>=0.2.54",
 #     "pandas>=2.0.0",
 #     "requests>=2.31.0",
-#     "matplotlib>=3.7.0",
 # ]
 # ///
 ```
@@ -48,9 +53,11 @@ Run directly: `uv run --script scripts/stocks.py <command>` or, if installed in 
 
 Each command follows the same three-part pattern:
 
-1. **`get_*()`** — fetches and normalizes data from yfinance, returns a plain `Dict[str, Any]`
+1. **`get_*()`** — fetches and normalizes data from yfinance, returns a plain `dict[str, Any]`
 2. **`format_*()`** — takes the dict, returns a formatted string for stdout
-3. **Subparser + dispatch** — registered in `main()`, calls get → format → print
+3. **Subparser + dispatch** — registered in `main()`, calls get → format → print, or get → `to_json()` → print with `--json`
+
+The data dict is the JSON contract: `--json` prints it as is through `to_json()` (NaN becomes `null`), so anything an agent needs belongs in the dict, not only in the formatted text. Every command except the chart server gets `--json` from one loop in `main()`; `chart --json` is its own.
 
 Retrieval failures are returned as data rather than raised as exceptions. Formatters display failures explicitly. Recommendations must preserve successful source data while also displaying any partial retrieval failures, rather than silently treating failed sources as empty results.
 
@@ -61,10 +68,21 @@ Retrieval failures are returned as data rather than raised as exceptions. Format
 | `quote` | `get_quote()` | `format_quote()` | `ticker.info`, `ticker.history()` |
 | `search` | `search_ticker()` | `format_search()` | Yahoo Finance search API |
 | `history` | `get_history()` | `format_history()` | `ticker.history()` |
-| `chart` | `generate_chart()` | — (returns filepath) | `ticker.history()` + matplotlib |
+| `chart` | `get_chart_data()`, `get_chart_info()` | `chart_page()` (HTML) | `ticker.history()`, `ticker.info` |
 | `news` | `get_news()` | `format_news()` | `yf.Search(query).news` |
 | `recommendations` | `get_recommendations()` | `format_recommendations()` | `ticker.recommendations_summary`, `ticker.upgrades_downgrades` |
 | `fundamentals` | `get_fundamentals()` | `format_fundamentals()` | `ticker.income_stmt`, `ticker.balance_sheet`, `ticker.cashflow`, TTM variants |
+
+`main()` prints the formatted output (or JSON) and exits 1 on any retrieval failure (`"error"` in the dict, or a non-empty `errors` list), including partial ones. Shared helpers: `RULE` (the `=` divider), `plural()`, `to_json()`. `format_quote()` shows net assets and the expense ratio for funds, which have no market cap.
+
+### Chart Pipeline
+
+`chart` follows drones.py's `map`: `chart_page()` fills the `CHART_PAGE` template (TradingView lightweight-charts, pinned on unpkg) with the first range's bars inlined, and `serve_chart()` serves it on `127.0.0.1` (default port 8767, free-port fallback). `CHART_PAGE` is indented as nested HTML inside `textwrap.dedent()` so it folds in an editor; keep new markup, CSS and JS at the matching level.
+
+- **Data:** the page's range buttons fetch `/data.json?period=&interval=`, which calls `get_chart_data()` live. Yahoo has no moving-average series, so `get_chart_data()` computes them server-side: a second `history(start=...)` call fetches enough bars before the range (`_lookback_start()`) for the longest average, and each average is returned aligned with the bars (null where history ran out).
+- **Stats strip:** `quote_from_info()` maps `ticker.info` to quote fields for both `quote` and the page (`get_chart_info()`); yfinance >= 0.2.54 reports `dividendYield` and `netExpenseRatio` as percentages already. `quote` uses Yahoo's `fiftyDayAverage` / `twoHundredDayAverage` and computes only SMA 20 and the EMAs.
+- **Credits:** the library's own TradingView logo is kept and its link retargeted to the symbol's page (`tradingview_url()` maps Yahoo symbols to TradingView's). The Yahoo icon is an inline SVG from Simple Icons 9.0.0 linking to the symbol's Yahoo Finance page.
+- **Output modes:** `--png` serves the page with controls hidden and a pinned size, and screenshots it with headless Chrome/Edge/Chromium (`find_browser()`, `STOCKS_BROWSER` override). `--json` prints the data. There is no matplotlib.
 
 ### Fundamentals Pipeline
 
@@ -72,10 +90,11 @@ Retrieval failures are returned as data rather than raised as exceptions. Format
 
 ```
 get_fundamentals(symbol)   →  factual financial snapshot dict with source dates
-format_fundamentals(data)  →  compact stdout snapshot (or the same factual data as JSON)
+format_fundamentals(data)  →  compact stdout snapshot
+to_json(data)              →  the same factual data as JSON (--json)
 ```
 
-The `main()` dispatch calls get → format → print. `--json` changes serialization, not the data content; `--raw` is removed.
+`--json` changes serialization, not the data content; `--raw` is removed.
 
 `score_fundamentals` and all scoring/analysis helpers are removed. There are no computed scores, ratios, trends, CAGR, or dot meters. Extraction and formatting preserve factual values and actual source dates, including cashflow dates independently of income-statement dates.
 
@@ -84,8 +103,10 @@ The `main()` dispatch calls get → format → print. `--json` changes serializa
 - `ticker.income_stmt` / `ticker.balance_sheet` / `ticker.cashflow` — DataFrame where **columns are dates (newest first)** and **rows are metric names**. Preserve each statement's actual dates; do not substitute income-statement dates for cashflow or balance-sheet dates. Cash uses the `Cash And Cash Equivalents` row, not a broader cash/investments metric.
 - `ticker.ttm_income_stmt` / `ticker.ttm_cashflow` — dated DataFrames, extracted with exact metric row names via `_statement_values()`; missing values retain their dates.
 - `ticker.upgrades_downgrades` — DataFrame indexed by `GradeDate`. Use `pd.Timestamp.now(tz=ud.index.tz)` to support both timezone-aware and naive indexes.
-- `ticker.recommendations_summary` — DataFrame with `period` column (`"0m"`, `"-1m"`, `"-2m"`) and columns `strongBuy`, `buy`, `hold`, `sell`, `strongSell`.
-- `yf.Search(query, news_count=n).news` — returns a list of dicts with keys: `title`, `publisher`, `link`, `providerPublishTime` (Unix timestamp int), `type`, `relatedTickers`. No `summary` field in this path.
+- `ticker.recommendations_summary` — DataFrame with `period` column (`"0m"`, `"-1m"`, ... currently down to `"-3m"`; `period_label()` handles any depth) and columns `strongBuy`, `buy`, `hold`, `sell`, `strongSell`.
+- `ticker.upgrades_downgrades` — `Action` is one of `up`, `down`, `init`, `main`, `reit` (`ACTION_LABELS`); price targets are `currentPriceTarget` / `priorPriceTarget` and can be NaN.
+- `ticker.history()` — can end with today's bar holding volume but no prices just after the close; `quote`, `history` and `chart` drop it.
+- `yf.Search(query, news_count=n).news` — returns a list of dicts with keys: `title`, `publisher`, `link`, `providerPublishTime` (Unix timestamp int), `type`, `relatedTickers`, `thumbnail`, `uuid`. No summary field, so there is no `--summary` option.
 
 ---
 
@@ -151,9 +172,9 @@ Retain strongBuy / buy / hold / sell / strongSell analyst counts for the current
 These three commands provide factual research inputs for an agent:
 
 ```bash
-stocks.py fundamentals <TICKER> --json   # Dated financial snapshot as JSON
-stocks.py recommendations <TICKER>       # Analyst counts and dated rating/price-target changes
-stocks.py news <TICKER|TOPIC>            # Current news context
+stocks.py fundamentals <TICKER> --json      # Dated financial snapshot
+stocks.py recommendations <TICKER> --json   # Analyst counts and dated rating/price-target changes
+stocks.py news <TICKER|TOPIC> --json        # Current news context
 ```
 
-The `--json` flag on `fundamentals` outputs the same factual snapshot data and dates as the default text output. Agents can collect these inputs across tickers without treating them as tool-generated investment verdicts, business-quality signals, or rankings.
+`--json` outputs the same factual data and dates as the default text output. Agents can collect these inputs across tickers without treating them as tool-generated investment verdicts, business-quality signals, or rankings.

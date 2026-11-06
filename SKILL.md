@@ -1,7 +1,8 @@
 ---
 name: stocks
 description: Get stock market data from Yahoo Finance. Use when the user asks about stock prices, quotes, company valuations, moving averages, historical data, stock charts, latest news, analyst recommendations, or dated financial snapshots. Supports any publicly traded stock via ticker symbol.
-compatibility: Requires uv or stocks.py in PATH.
+compatibility: Requires uv and network access to query1.finance.yahoo.com, query2.finance.yahoo.com, fc.yahoo.com and finance.yahoo.com. uv installs Python packages from PyPI on first run.
+allowed-tools: Bash(uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py *)
 ---
 
 # Stock Market Data Tool
@@ -10,17 +11,28 @@ Get stock quotes, news, analyst recommendations, dated financial snapshots, hist
 
 ## Invocation
 
-If `stocks.py` is installed in PATH:
 ```bash
-stocks.py <command> [args]
+uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py <command> [args]
 ```
 
-Or run directly without installing:
-```bash
-uv run --script /path/to/skill/scripts/stocks.py <command> [args]
-```
+Examples in this document write `stocks.py` as shorthand for that whole command; always run the full form. uv installs the script's dependencies on first run, so the first call can take a few seconds longer.
 
-Examples in this document use `stocks.py` as shorthand for either invocation form above.
+If every command fails with a connection or DNS error, the sandbox is blocking Yahoo Finance. Tell the user to allow the domains listed under `compatibility` in their network settings (Cowork: Settings > Capabilities, or the organization's network egress allowlist) and start a new session, since network changes don't apply to a session that's already running. Don't fall back to made-up prices.
+
+## JSON Output
+
+Every command except the `chart` server takes `--json`, which prints the command's data as JSON instead of formatted text. Prefer it when you'll parse the result. Missing values are `null`, and a failure prints `{"error": "..."}` and exits 1.
+
+| Command | Top-level JSON keys |
+|---------|---------------------|
+| `quote` | `symbol`, `company_name`, `quote_type`, `exchange`, `currency`, `current_price`, `market_cap`, `net_assets`, `pe_ratio`, `forward_pe`, `dividend_yield` and `expense_ratio` (already percentages: `0.33` = 0.33%), `52_week_high`, `52_week_low`, `volume`, `avg_volume`, `beta`, `sector`, `industry`, `market_time` (Unix seconds), `quote_time`, `yahoo_url` (the symbol's Yahoo Finance page), `moving_averages` (`SMA_20`… each `{value, position, distance_pct}`) |
+| `search` | `query`, `count`, `results` (each `{symbol, name, exchange, type}`) |
+| `history` | `symbol`, `period`, `interval`, `count`, `data` (each `{date, open, high, low, close, volume}`, prices to 2 decimals) |
+| `news` | `query`, `count`, `articles` (each `{title, source, pub_date, url}`) |
+| `recommendations` | `symbol`, `consensus` (each `{period, strong_buy, buy, hold, sell, strong_sell, total}`), `rating_changes` (each `{date, firm, from_grade, to_grade, action_label, pt_note}`), `history_months`, `errors`, `consensus_failed`, `rating_changes_failed` |
+| `fundamentals` | `symbol`, `financials`, `balance_sheet` (see Fundamentals) |
+
+`chart --json` prints the chart's bars and moving averages; see Charts.
 
 ## Commands Reference
 
@@ -32,46 +44,52 @@ stocks.py quote TSLA
 
 Returns:
 - Current price
-- Market cap
+- Market cap (funds such as SPY: net assets instead)
 - P/E ratio (trailing and forward)
-- Dividend yield
+- Dividend yield (funds: plus expense ratio)
 - 52-week high/low
 - Volume (current and average)
 - Beta
 - Sector and industry
-- Moving averages (SMA 20/50/200, EMA 9/21)
+- Moving averages: SMA 50/200 as published by Yahoo; SMA 20 and EMA 9/21 computed from 6 months of daily closes
 - Position relative to each MA (above/below with % distance)
+- Link to the symbol's Yahoo Finance page
 
-### Generate Charts
+### Charts
 ```bash
-# Default: 6-month candlestick, white background, no moving averages
+# Interactive chart for the user: serves on localhost and opens their browser.
+# Blocks until Ctrl+C, so run it in the background or let the user run it.
 stocks.py chart AAPL
+stocks.py chart MSFT --period 1y --ma 50 200 --theme dark
 
-# Line chart
-stocks.py chart TSLA --type line
+# PNG for you to view or share (headless Chrome, Edge or Chromium)
+stocks.py chart NVDA --png nvda.png
+stocks.py chart TSLA --period 1y --type line --size 1600x900 --png tsla.png
 
-# Custom period
-stocks.py chart MSFT --period 1y
-
-# Black background (dark themes only)
-stocks.py chart AMD --background black
-
-# Custom dimensions
-stocks.py chart GOOGL --width 1600 --height 1000
-
-# Custom moving averages
-stocks.py chart META --ma 9 21 50
-
-# Full options
-stocks.py chart AAPL --period 1y --type candlestick --background white --width 1400 --height 900 --ma 20 50 200 --output aapl_chart.png
+# The chart's bars as JSON
+stocks.py chart AMD --period 5d --json
 ```
 
-Chart features:
-- Candlestick or line chart types
-- Moving average overlays (customizable periods)
-- Volume subplot (candlestick mode)
-- White (default), black, or transparent backgrounds — prefer white unless the output context is explicitly dark-themed
-- Auto-contrasting colors for each background
+The page shows the symbol, name, exchange, last price, and change over the range; a stats strip from the same data as `quote` (market cap or a fund's net assets, P/E, forward P/E, dividend yield, expense ratio, beta, volume, average volume, 52-week range, sector and industry, skipping whatever Yahoo lacks for the asset type); a candlestick (or line) chart with a volume pane, and a crosshair readout of OHLCV and moving average values. In the browser the user can switch range (1D, 5D, 1M, 3M, 6M, YTD, 1Y, 2Y, 5Y, Max), chart type, MA20/50/200 overlays, and theme. `--png` captures the same page without the controls. On success it prints `Chart saved: <absolute path>`; failures print `Error: ...` and exit 1.
+
+The served page and `--png` need the user's own machine: the page is only reachable from the computer the server runs on, and `--png` needs a desktop browser. In a sandbox such as Cowork, where the user can't open your localhost and there's no browser, don't start the server. Use `chart --json` and draw the chart yourself, or give the user the `yahoo_url` from `quote`.
+
+Options:
+| Option | Default | Description |
+|--------|---------|-------------|
+| `symbol` | required | Ticker symbol |
+| `--period`, `-p` | 6mo | Starting period: 1d, 5d, 1mo, 3mo, 6mo, ytd, 1y, 2y, 5y, 10y, max |
+| `--interval`, `-i` | per period | 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo. Defaults: 1d→5m, 5d→15m, 1mo→1h, 2y/5y→1wk, max→1mo, others 1d |
+| `--type`, `-t` | candlestick | candlestick or line |
+| `--ma` | none | Moving averages shown at start, e.g. `--ma 20 50 200` |
+| `--theme` | light | light or dark; prefer light unless the output is explicitly dark-themed |
+| `--port` | 8767 | Serve port; falls back to a free port if taken |
+| `--no-open` | off | Serve without opening a browser |
+| `--png FILE` | - | Save a screenshot instead of serving |
+| `--size` | 1200x800 | `WxH` for `--png` |
+| `--json` | off | Print `symbol`, `name`, `exchange`, `currency`, `period`, `interval`, `intraday`, `bars` (`time`, `open`, `high`, `low`, `close`, `volume`), and `ma` (per period, e.g. `"200"`, a list of values aligned with `bars`) |
+
+Intraday `time` values are Unix seconds of the exchange's wall-clock time (read them as UTC); daily and longer bars use `YYYY-MM-DD`. Moving averages are simple averages over that many **bars** of the chart's interval (MA200 on a weekly chart is 200 weeks), computed with history from before the range so they cover the whole chart. `ma` values are null only where history runs out (the start of `max`, or intraday data past Yahoo's limits). If no browser is found, set `STOCKS_BROWSER` to its path.
 
 ### Search for Tickers
 ```bash
@@ -96,24 +114,20 @@ stocks.py news TSLA --count 10
 stocks.py news "oil prices"
 stocks.py news "Federal Reserve interest rates"
 stocks.py news "semiconductor sector"
-
-# Show full article summary
-stocks.py news NVDA --summary
-stocks.py news "AI chips" -s -n 3
 ```
 
 Returns for each article:
 - Headline
 - Publisher and publish timestamp
 - Article URL
-- Full summary paragraph (with `--summary`)
+
+Yahoo's news search returns no article summaries, so open the URL for the full story.
 
 Options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `query` | required | Ticker symbol or any search query string |
 | `--count`, `-n` | 5 | Number of articles to return |
-| `--summary`, `-s` | off | Show full summary paragraph |
 
 ### Historical Data
 ```bash
@@ -212,10 +226,10 @@ stocks.py news AAPL
 
 ### Agent Research Inputs
 ```bash
-# Fundamentals as JSON; recommendations and news as text
+# All as JSON for parsing
 stocks.py fundamentals AAPL --json
-stocks.py recommendations AAPL
-stocks.py news AAPL --count 10
+stocks.py recommendations AAPL --json
+stocks.py news AAPL --count 10 --json
 ```
 
 ### Collect Financial Snapshots
@@ -246,15 +260,15 @@ stocks.py news TSLA
 # View historical performance
 stocks.py history TSLA --period 1y
 
-# Generate chart for analysis
-stocks.py chart TSLA --period 1y --background white
+# Chart for analysis
+stocks.py chart TSLA --period 1y --png tsla.png
 ```
 
 ### Market / Topic News
 ```bash
 stocks.py news "Federal Reserve"
 stocks.py news "oil prices" --count 10
-stocks.py news "semiconductor tariffs" --summary
+stocks.py news "semiconductor tariffs" -n 3
 ```
 
 ### Compare Stocks
@@ -264,16 +278,13 @@ for ticker in AAPL MSFT GOOGL; do
 done
 ```
 
-### Generate Charts for Presentation
+### Charts for Presentation
 ```bash
-# Default: white background — works for most documents and slides
-stocks.py chart AAPL --width 1400 --height 900
+# Light theme works for most documents and slides
+stocks.py chart AAPL --size 1600x900 --png aapl.png
 
-# Black background for explicitly dark-themed presentations
-stocks.py chart TSLA --background black
-
-# Transparent for overlay use
-stocks.py chart MSFT --background transparent
+# Dark theme for explicitly dark-themed presentations
+stocks.py chart TSLA --theme dark --png tsla.png
 ```
 
 ### Historical Analysis
@@ -382,7 +393,7 @@ stocks.py history QQQ --period 3mo
 ## Tips
 
 - Use `search` when you don't know the exact ticker symbol
-- Chart backgrounds: default is `white` — use `black` only for explicitly dark-themed output, `transparent` for overlay use
+- Charts: `chart` without `--png` or `--json` runs a server until stopped; use `--png` when you need an image yourself
 - Historical intervals: period and interval must be compatible — see the period/interval table in the Historical Data section. Mismatched combinations silently return empty data.
-- Moving averages require sufficient historical data (200+ days for MA 200)
+- Quote's SMA 200 is Yahoo's figure; it can differ slightly from the chart's MA200 on daily bars, which uses dividend-adjusted closes
 - Quote timestamps are from the last market data update, not current time

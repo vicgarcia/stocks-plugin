@@ -1,0 +1,12 @@
+{
+  "name": "stocks-py",
+  "description": "stocks.py, a Yahoo Finance skill for Claude.",
+  "owner": { "name": "vicgarcia" },
+  "plugins": [
+    {
+      "name": "stocks",
+      "source": ".",
+      "description": "Stock quotes, history, charts, news, analyst recommendations and financial snapshots from Yahoo Finance."
+    }
+  ]
+}
