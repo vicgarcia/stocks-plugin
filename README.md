@@ -2,7 +2,7 @@
 
 An agent skill for stock market data and analysis, backed by a single-file CLI tool written in Python powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and open interactive charts in the browser or save them as PNGs.
 
-![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks.py/main/chart_example.png)
+![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks.py/main/screenshot.png)
 
 ## Features
 
