@@ -1,6 +1,6 @@
 {
-  "name": "stocks-py",
-  "description": "stocks.py, a Yahoo Finance skill for Claude.",
+  "name": "stocks-plugin",
+  "description": "stocks-plugin, a Yahoo Finance skill for Claude.",
   "owner": { "name": "vicgarcia" },
   "plugins": [
     {

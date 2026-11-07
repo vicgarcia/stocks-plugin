@@ -1,8 +1,8 @@
-# stocks.py
+# stocks-plugin
 
-An agent skill for stock market data and analysis, backed by a single-file CLI tool written in Python powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and open interactive charts in the browser or save them as PNGs.
+The `stocks` agent skill and the `stocks.py` CLI behind it, for stock market data and analysis: a single-file Python CLI powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and open interactive charts in the browser or save them as PNGs.
 
-![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks.py/main/screenshot.png)
+![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks-plugin/main/screenshot.png)
 
 ## Features
 
@@ -23,29 +23,44 @@ An agent skill for stock market data and analysis, backed by a single-file CLI t
 
 ## Installation
 
-### Install for uv
+### Claude Desktop
 
-```bash
-# Clone the repo
-git clone https://github.com/vicgarcia/stocks.py
+The plugin build is meant for Claude Desktop, including Cowork. The repo is a plugin marketplace
+with one plugin, `stocks`.
 
-# Run directly (dependencies auto-installed)
-uv run --script skills/stocks/scripts/stocks.py --help
-
-# Install in PATH
-cp skills/stocks/scripts/stocks.py ~/.local/bin/stocks.py
-chmod +x ~/.local/bin/stocks.py
-stocks.py --help
-```
-
-### Install as a Claude plugin (Cowork, Claude Code)
-
-The repo is a plugin marketplace with one plugin, `stocks`.
-
-- **Cowork / Claude Desktop:** Customize > Plugins > Add > Add marketplace, enter `vicgarcia/stocks.py`, then add the `stocks` plugin. Or download `stocks-v*.zip` from [Releases](https://github.com/vicgarcia/stocks.py/releases) and upload it as a custom plugin, or upload `stocks-skill-v*.zip` under Customize > Skills to add just the skill.
-- **Claude Code:** `/plugin marketplace add vicgarcia/stocks.py`, then `/plugin install stocks@stocks-py`.
+- Customize > Plugins > Add > Add marketplace, enter `vicgarcia/stocks-plugin`, then add the `stocks` plugin.
+- Or download `stocks-plugin-v*.zip` from [Releases](https://github.com/vicgarcia/stocks-plugin/releases) and upload it as a custom plugin, or upload `stocks-skill-v*.zip` under Customize > Skills to add just the skill.
 
 The skill runs the script with `uv run --script`, so the environment needs uv and network access to PyPI (for the dependencies) and Yahoo Finance (`query1.finance.yahoo.com`, `query2.finance.yahoo.com`, `fc.yahoo.com`, `finance.yahoo.com`). Cowork's sandbox allows package managers by default, but not Yahoo: add those domains under Settings > Capabilities (on Team and Enterprise, the organization's network egress allowlist), then start a new session. The interactive chart needs a local machine with a browser. In a sandbox, Claude uses `chart --json` instead.
+
+### Coding harnesses (Claude Code, pi)
+
+In a coding harness, install `stocks.py` as a command in your PATH and give the agent the skill.
+
+1. Install [uv](https://github.com/astral-sh/uv). The script's PEP 723 header declares its
+   dependencies, so uv installs them on first run; there is nothing else to set up.
+2. Copy the script into a directory in your PATH and make it executable:
+
+   ```bash
+   git clone https://github.com/vicgarcia/stocks-plugin.git
+   cp stocks-plugin/skills/stocks/scripts/stocks.py ~/.local/bin/stocks.py
+   chmod +x ~/.local/bin/stocks.py
+   stocks.py --help
+   ```
+
+3. Copy the skill into your harness's skills directory (`~/.claude/skills/stocks` for Claude Code,
+   `~/.pi/agent/skills/stocks` for pi):
+
+   ```bash
+   mkdir -p ~/.claude/skills/stocks
+   cp stocks-plugin/skills/stocks/SKILL.md ~/.claude/skills/stocks/
+   ```
+
+4. As shipped, the skill runs `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, a path that
+   only exists inside the plugin. Ask your agent to switch it to the installed command:
+
+   > Update the stocks skill in ~/.claude/skills/stocks/SKILL.md to run `stocks.py` from my PATH instead
+   > of `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, including its `allowed-tools` line.
 
 ## Commands
 
@@ -260,13 +275,7 @@ With `--json`, an agent can collect the dated financial snapshot alongside analy
 
 ## Agent Skill
 
-The skill lives in `skills/stocks/` (`SKILL.md` plus `scripts/`). For Claude, install it as a plugin (see Installation). For other agents, copy that folder into their skills directory:
-
-```bash
-cp -r skills/stocks /path/to/agent/skills/
-```
-
-`SKILL.md` runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`. Claude fills in `${CLAUDE_SKILL_DIR}`; for other agents, replace it with the skill directory's path.
+The skill lives in `skills/stocks/` (`SKILL.md` plus `scripts/`). See [Installation](#installation): the plugin for Claude Desktop, or the script in your PATH plus `SKILL.md` for Claude Code, pi and other coding harnesses.
 
 ## Ticker Symbol Reference
 

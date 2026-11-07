@@ -2,6 +2,6 @@
   "name": "stocks",
   "description": "Stock quotes, history, charts, news, analyst recommendations and financial snapshots from Yahoo Finance.",
   "author": { "name": "vicgarcia" },
-  "homepage": "https://github.com/vicgarcia/stocks.py",
-  "repository": "https://github.com/vicgarcia/stocks.py"
+  "homepage": "https://github.com/vicgarcia/stocks-plugin",
+  "repository": "https://github.com/vicgarcia/stocks-plugin"
 }

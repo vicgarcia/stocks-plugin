@@ -1,8 +1,8 @@
-# CLAUDE.md — stocks.py
+# CLAUDE.md — stocks-plugin
 
 ## Project Overview
 
-`stocks.py` is a single-file CLI tool for stock market data, backed by Yahoo Finance via the `yfinance` library. It is also packaged as an **agent skill** — a self-contained, documented tool that AI agents can call directly as a subprocess.
+`stocks-plugin` holds `stocks.py`, a single-file CLI tool for stock market data backed by Yahoo Finance via the `yfinance` library, and the `stocks` **agent skill** that packages it — a self-contained, documented tool that AI agents can call directly as a subprocess.
 
 The project has two distinct consumers:
 - **Human users** running `stocks.py <command>` directly from the terminal
@@ -13,10 +13,10 @@ The project has two distinct consumers:
 ## Repository Layout
 
 ```
-stocks.py/
+stocks-plugin/
 ├── .claude-plugin/
 │   ├── plugin.json        # Plugin manifest (plugin `stocks`)
-│   └── marketplace.json   # Single-plugin marketplace (`stocks-py`, source ".")
+│   └── marketplace.json   # Single-plugin marketplace (`stocks-plugin`, source "./")
 ├── skills/stocks/
 │   ├── SKILL.md           # Agent-facing reference (commands, options, output semantics)
 │   └── scripts/
@@ -26,7 +26,7 @@ stocks.py/
 └── CLAUDE.md              # This file
 ```
 
-The repo root is the plugin, and the skill lives in the standard `skills/<name>/` layout. Don't move `SKILL.md` to the root: Cowork then installs the skill without `scripts/`. SKILL.md runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, and its `allowed-tools` rule matches that exact command, so keep the two in sync. Cowork runs it in a cloud sandbox: PyPI is reachable by default, but the Yahoo domains in `compatibility` have to be allowed, and nothing served on localhost reaches the user. The release zip (`.github/workflows/release.yml`) is the same plugin, for upload.
+The repo root is the plugin, and the skill lives in the standard `skills/<name>/` layout. Don't move `SKILL.md` to the root: Cowork then installs the skill without `scripts/`. SKILL.md runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, and its `allowed-tools` rule matches that exact command, so keep the two in sync. Cowork runs it in a cloud sandbox: PyPI is reachable by default, but the Yahoo domains in `compatibility` have to be allowed, and nothing served on localhost reaches the user. The release (`.github/workflows/release.yml`) builds the same plugin as `stocks-plugin-v*.zip`, and the skill alone as `stocks-skill-v*.zip`, for upload. The plugin build targets Claude Desktop (including Cowork); coding harnesses such as Claude Code and pi run `stocks.py` from PATH with the skill's invocation rewritten (see README Installation).
 
 ---
 
