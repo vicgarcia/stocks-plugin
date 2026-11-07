@@ -1,4 +1,4 @@
-# CLAUDE.md — stocks-plugin
+# stocks-plugin
 
 ## Project Overview
 
@@ -23,7 +23,7 @@ stocks-plugin/
 │       └── stocks.py      # The entire CLI — single file, all commands
 ├── tests/test_stocks.py
 ├── README.md              # Human-facing docs (installation, usage, examples)
-└── CLAUDE.md              # This file
+└── AGENTS.md              # This file
 ```
 
 The repo root is the plugin, and the skill lives in the standard `skills/<name>/` layout. Don't move `SKILL.md` to the root: Cowork then installs the skill without `scripts/`. SKILL.md runs the script as `uv run --script ${CLAUDE_SKILL_DIR}/scripts/stocks.py`, and its `allowed-tools` rule matches that exact command, so keep the two in sync. Cowork runs it in a cloud sandbox: PyPI is reachable by default, but the Yahoo domains in `compatibility` have to be allowed, and nothing served on localhost reaches the user. The release (`.github/workflows/release.yml`) builds the same plugin as `stocks-plugin-v*.zip`, and the skill alone as `stocks-skill-v*.zip`, for upload. The plugin build targets Claude Desktop (including Cowork); coding harnesses such as Claude Code and pi run `stocks.py` from PATH with the skill's invocation rewritten (see README Installation).
