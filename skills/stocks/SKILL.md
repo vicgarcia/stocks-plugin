@@ -62,17 +62,13 @@ Returns:
 stocks.py chart AAPL
 stocks.py chart MSFT --period 1y --ma 50 200 --theme dark
 
-# PNG for you to view or share (headless Chrome, Edge or Chromium)
-stocks.py chart NVDA --png nvda.png
-stocks.py chart TSLA --period 1y --type line --size 1600x900 --png tsla.png
-
 # The chart's bars as JSON
 stocks.py chart AMD --period 5d --json
 ```
 
-The page shows the symbol, name, exchange, last price, and change over the range; a stats strip from the same data as `quote` (market cap or a fund's net assets, P/E, forward P/E, dividend yield, expense ratio, beta, volume, average volume, 52-week range, sector and industry, skipping whatever Yahoo lacks for the asset type); a candlestick (or line) chart with a volume pane, and a crosshair readout of OHLCV and moving average values. In the browser the user can switch range (1D, 5D, 1M, 3M, 6M, YTD, 1Y, 2Y, 5Y, Max), chart type, MA20/50/200 overlays, and theme. `--png` captures the same page without the controls. On success it prints `Chart saved: <absolute path>`; failures print `Error: ...` and exit 1.
+The page shows the symbol, name, exchange, last price, and change over the range; a stats strip from the same data as `quote` (market cap or a fund's net assets, P/E, forward P/E, dividend yield, expense ratio, beta, volume, average volume, 52-week range, sector and industry, skipping whatever Yahoo lacks for the asset type); a candlestick (or line) chart with a volume pane, and a crosshair readout of OHLCV and moving average values. In the browser the user can switch range (1D, 5D, 1M, 3M, 6M, YTD, 1Y, 2Y, 5Y, Max), chart type, MA20/50/200 overlays, and theme. Failures print `Error: ...` and exit 1.
 
-The served page and `--png` need the user's own machine: the page is only reachable from the computer the server runs on, and `--png` needs a desktop browser. In a sandbox such as Cowork, where the user can't open your localhost and there's no browser, don't start the server. Use `chart --json` and draw the chart yourself, or give the user the `yahoo_url` from `quote`.
+The served page needs the user's own machine: it is only reachable from the computer the server runs on. In a sandbox such as Cowork, where the user can't open your localhost, don't start the server. Use `chart --json` and draw the chart yourself, or give the user the `yahoo_url` from `quote`.
 
 Options:
 | Option | Default | Description |
@@ -82,14 +78,12 @@ Options:
 | `--interval`, `-i` | per period | 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo. Defaults: 1d→5m, 5d→15m, 1mo→1h, 2y/5y→1wk, max→1mo, others 1d |
 | `--type`, `-t` | candlestick | candlestick or line |
 | `--ma` | none | Moving averages shown at start, e.g. `--ma 20 50 200` |
-| `--theme` | light | light or dark; prefer light unless the output is explicitly dark-themed |
+| `--theme` | light | light or dark |
 | `--port` | 8767 | Serve port; falls back to a free port if taken |
 | `--no-open` | off | Serve without opening a browser |
-| `--png FILE` | - | Save a screenshot instead of serving |
-| `--size` | 1200x800 | `WxH` for `--png` |
 | `--json` | off | Print `symbol`, `name`, `exchange`, `currency`, `period`, `interval`, `intraday`, `bars` (`time`, `open`, `high`, `low`, `close`, `volume`), and `ma` (per period, e.g. `"200"`, a list of values aligned with `bars`) |
 
-Intraday `time` values are Unix seconds of the exchange's wall-clock time (read them as UTC); daily and longer bars use `YYYY-MM-DD`. Moving averages are simple averages over that many **bars** of the chart's interval (MA200 on a weekly chart is 200 weeks), computed with history from before the range so they cover the whole chart. `ma` values are null only where history runs out (the start of `max`, or intraday data past Yahoo's limits). If no browser is found, set `STOCKS_BROWSER` to its path.
+Intraday `time` values are Unix seconds of the exchange's wall-clock time (read them as UTC); daily and longer bars use `YYYY-MM-DD`. Moving averages are simple averages over that many **bars** of the chart's interval (MA200 on a weekly chart is 200 weeks), computed with history from before the range so they cover the whole chart. `ma` values are null only where history runs out (the start of `max`, or intraday data past Yahoo's limits).
 
 ### Search for Tickers
 ```bash
@@ -260,8 +254,8 @@ stocks.py news TSLA
 # View historical performance
 stocks.py history TSLA --period 1y
 
-# Chart for analysis
-stocks.py chart TSLA --period 1y --png tsla.png
+# Chart data for analysis
+stocks.py chart TSLA --period 1y --json
 ```
 
 ### Market / Topic News
@@ -276,15 +270,6 @@ stocks.py news "semiconductor tariffs" -n 3
 for ticker in AAPL MSFT GOOGL; do
   stocks.py quote $ticker
 done
-```
-
-### Charts for Presentation
-```bash
-# Light theme works for most documents and slides
-stocks.py chart AAPL --size 1600x900 --png aapl.png
-
-# Dark theme for explicitly dark-themed presentations
-stocks.py chart TSLA --theme dark --png tsla.png
 ```
 
 ### Historical Analysis
@@ -393,7 +378,7 @@ stocks.py history QQQ --period 3mo
 ## Tips
 
 - Use `search` when you don't know the exact ticker symbol
-- Charts: `chart` without `--png` or `--json` runs a server until stopped; use `--png` when you need an image yourself
+- Charts: `chart` without `--json` runs a server until stopped; use `--json` when you need the data yourself
 - Historical intervals: period and interval must be compatible — see the period/interval table in the Historical Data section. Mismatched combinations silently return empty data.
 - Quote's SMA 200 is Yahoo's figure; it can differ slightly from the chart's MA200 on daily bars, which uses dividend-adjusted closes
 - Quote timestamps are from the last market data update, not current time

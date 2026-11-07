@@ -14,7 +14,7 @@ Commands:
     quote           - Get stock quote with moving averages
     search          - Search for ticker symbols by company name
     history         - Get historical OHLCV data
-    chart           - Serve an interactive chart on localhost, or save a PNG of it
+    chart           - Serve an interactive chart on localhost
     news            - Get latest news for a ticker or any search query
     recommendations - Analyst consensus and recent rating changes
     fundamentals    - Compact financial snapshot (no scoring)
@@ -23,15 +23,10 @@ Commands:
 import argparse
 import http.server
 import json
-import os
 import re
-import shutil
 import socket
-import subprocess
 import sys
-import tempfile
 import textwrap
-import threading
 import urllib.parse
 import webbrowser
 from datetime import datetime
@@ -299,9 +294,6 @@ DEFAULT_INTERVALS = {period: interval for _, period, interval in CHART_RANGES}
 # Moving averages offered as toggles; --ma adds others and picks which start on
 CHART_MAS = [20, 50, 200]
 CHART_PORT = 8767
-DEFAULT_PNG_SIZE = (1200, 800)
-# Page time headless Chromium allows for the chart library to load and draw
-SCREENSHOT_WAIT_MS = 5000
 
 # Colors for both themes; the page turns these into CSS variables too
 CHART_THEMES = {
@@ -391,8 +383,6 @@ CHART_PAGE = textwrap.dedent("""\
             filter: drop-shadow(0 0 1px var(--bg)) drop-shadow(0 0 1px var(--bg)) drop-shadow(0 0 2px var(--bg));
           }
           .source:hover { transform: scale(1.15); }
-          .static .toolbar { display: none; }
-          __SCREENSHOT_CSS__
         </style>
       </head>
       <body>
@@ -431,7 +421,6 @@ CHART_PAGE = textwrap.dedent("""\
           const RANGES = __RANGES__;
           const THEMES = __THEMES__;
           const MA_CHOICES = __MA_CHOICES__;
-          const STATIC = __STATIC__;
           const state = __STATE__;
           let data = __DATA__;
 
@@ -696,14 +685,12 @@ CHART_PAGE = textwrap.dedent("""\
             }
           }
 
-          if (STATIC) document.body.classList.add('static');
           chart = LWC.createChart($('chart'), {
             autoSize: true,
             layout: { fontFamily: getComputedStyle(document.body).fontFamily, fontSize: 12 },
             crosshair: { mode: LWC.CrosshairMode.Normal },
             rightPriceScale: { borderVisible: true },
             timeScale: { borderVisible: true, rightOffset: 2 },
-            handleScale: !STATIC, handleScroll: !STATIC,
           });
           chart.subscribeCrosshairMove(param => {
             const index = param.logical !== undefined ? Math.round(param.logical) : data.bars.length - 1;
@@ -878,30 +865,20 @@ def chart_page(
         chart_type: str = "candlestick",
         ma_periods: list[int] | None = None,
         theme: str = "light",
-        size: tuple[int, int] | None = None,
     ) -> str:
     """
     Fill the chart page template.
 
-    The first range is inlined so the page draws without a round trip. With
-    a size, the page is pinned to that many pixels and the controls hidden,
-    for a screenshot.
+    The first range is inlined so the page draws without a round trip.
     """
     ma_periods = ma_periods or []
-    screenshot_css = ""
-    if size:
-        width, height = size
-        screenshot_css = (f"#app {{ width: {width}px; height: {height}px; }}\n"
-                          "html, body { overflow: hidden; }")
     title = f"{info['symbol']} - stocks.py".replace("&", "&amp;").replace("<", "&lt;")
     return (CHART_PAGE
-            .replace("__SCREENSHOT_CSS__", screenshot_css)
             .replace("__TITLE__", title)
             .replace("__INFO__", _script_json(info))
             .replace("__RANGES__", _script_json(CHART_RANGES))
             .replace("__THEMES__", _script_json(CHART_THEMES))
             .replace("__MA_CHOICES__", _script_json(chart_ma_choices(ma_periods)))
-            .replace("__STATIC__", _script_json(bool(size)))
             .replace("__STATE__", _script_json({"type": chart_type, "ma": sorted(set(ma_periods)),
                                                 "theme": theme}))
             .replace("__DATA__", _script_json(data)))
@@ -991,100 +968,6 @@ def serve_chart(
         server.server_close()
 
 
-# Chromium-family browsers that can screenshot headless, checked in order
-BROWSER_COMMANDS = [
-    "chrome", "google-chrome", "google-chrome-stable",
-    "chromium", "chromium-browser", "msedge", "microsoft-edge",
-]
-
-
-def _browser_paths() -> list[str]:
-    """Usual install locations on Windows and macOS, which are rarely on PATH."""
-    paths = []
-    for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"),
-                 os.environ.get("LOCALAPPDATA")):
-        if root:
-            paths += [
-                os.path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
-                os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
-                os.path.join(root, "Chromium", "Application", "chrome.exe"),
-            ]
-    paths += [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    ]
-    return paths
-
-
-def find_browser() -> str | None:
-    """Locate Chrome, Edge or Chromium. STOCKS_BROWSER overrides the search."""
-    override = os.environ.get("STOCKS_BROWSER")
-    if override:
-        return override
-    for command in BROWSER_COMMANDS:
-        found = shutil.which(command)
-        if found:
-            return found
-    return next((path for path in _browser_paths() if os.path.isfile(path)), None)
-
-
-def screenshot_chart(
-        page: str,
-        symbol: str,
-        ma_periods: list[int],
-        path: str,
-        size: tuple[int, int],
-        wait_ms: int = SCREENSHOT_WAIT_MS,
-    ) -> str:
-    """
-    Render the chart page to a PNG with a headless Chromium browser.
-
-    The page is served on a free localhost port for the duration. Headless
-    screenshots fire on a virtual clock, so wait_ms is the page time allowed
-    for the chart library to load and draw before the capture.
-    """
-    browser = find_browser()
-    if not browser:
-        raise RuntimeError("No Chrome, Edge or Chromium found for --png; "
-                           "install one or set STOCKS_BROWSER to its path")
-
-    output = os.path.abspath(path)
-    if os.path.exists(output):
-        os.remove(output)  # so a stale file can't pass for a fresh capture
-
-    server = _chart_server(page, symbol, ma_periods, 0)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
-
-    width, height = size
-    # A throwaway profile keeps headless runs clear of an open browser session
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as profile:
-        command = [
-            browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-            "--no-first-run", "--no-default-browser-check",
-            f"--user-data-dir={profile}",
-            f"--window-size={width},{height}",
-            f"--virtual-time-budget={wait_ms}",
-            f"--screenshot={output}",
-            url,
-        ]
-        try:
-            result = subprocess.run(command, capture_output=True, text=True,
-                                    timeout=wait_ms / 1000 + 90)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            raise RuntimeError(f"Browser screenshot failed: {e}") from e
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    if not os.path.isfile(output):
-        detail = (result.stderr or result.stdout or "").strip().splitlines()[-3:]
-        raise RuntimeError("Browser did not write a screenshot"
-                           + (": " + " | ".join(detail) if detail else ""))
-    return output
-
-
 def parse_port(value: str) -> int:
     """argparse type for a TCP port, so a bad value is a usage error, not a traceback."""
     port = int(value)
@@ -1093,16 +976,8 @@ def parse_port(value: str) -> int:
     return port
 
 
-def parse_size(value: str) -> tuple[int, int]:
-    """argparse type for WIDTHxHEIGHT image sizes."""
-    match = re.match(r"^(\d{2,5})x(\d{2,5})$", value.strip().lower())
-    if not match:
-        raise argparse.ArgumentTypeError(f"size must look like 1200x800, got {value!r}")
-    return int(match.group(1)), int(match.group(2))
-
-
 def run_chart(args: argparse.Namespace) -> int:
-    """Serve the chart, save a screenshot of it, or print its data."""
+    """Serve the chart, or print its data."""
     choices = chart_ma_choices(args.ma)
     data = get_chart_data(args.symbol, period=args.period, interval=args.interval,
                           ma_periods=choices)
@@ -1114,12 +989,8 @@ def run_chart(args: argparse.Namespace) -> int:
         print(to_json({**info, **data}))
         return 0
     try:
-        if args.png:
-            page = chart_page(info, data, args.type, args.ma, args.theme, size=args.size)
-            print(f"Chart saved: {screenshot_chart(page, args.symbol, choices, args.png, args.size)}")
-        else:
-            page = chart_page(info, data, args.type, args.ma, args.theme)
-            serve_chart(page, args.symbol, choices, args.port, not args.no_open)
+        page = chart_page(info, data, args.type, args.ma, args.theme)
+        serve_chart(page, args.symbol, choices, args.port, not args.no_open)
     except RuntimeError as e:
         print(f"Error: {e}")
         return 1
@@ -1407,7 +1278,7 @@ def main():
     history_parser.add_argument("--interval", "-i", choices=CHART_INTERVALS, default="1d", help="Interval (default: 1d)")
 
     # chart command
-    chart_parser = subparsers.add_parser("chart", help="Serve an interactive chart on localhost, or save a PNG of it")
+    chart_parser = subparsers.add_parser("chart", help="Serve an interactive chart on localhost")
     chart_parser.add_argument("symbol", help="Stock ticker symbol")
     chart_parser.add_argument("--period", "-p", choices=CHART_PERIODS, default="6mo", help="Starting period (default: 6mo)")
     chart_parser.add_argument("--interval", "-i", choices=CHART_INTERVALS, help="Bar interval (default: picked for the period)")
@@ -1416,9 +1287,6 @@ def main():
     chart_parser.add_argument("--theme", choices=["light", "dark"], default="light", help="Color theme (default: light)")
     chart_parser.add_argument("--port", type=parse_port, default=CHART_PORT, help=f"Port to serve on (default: {CHART_PORT})")
     chart_parser.add_argument("--no-open", action="store_true", help="Do not open a browser automatically")
-    chart_parser.add_argument("--png", metavar="FILE", help="Save a screenshot of the chart instead of serving it (needs Chrome, Edge or Chromium)")
-    chart_parser.add_argument("--size", type=parse_size, default=DEFAULT_PNG_SIZE, metavar="WxH",
-                              help="Screenshot size for --png (default: {}x{})".format(*DEFAULT_PNG_SIZE))
     chart_parser.add_argument("--json", action="store_true", help="Print the chart data as JSON instead of serving it")
 
     # fundamentals command

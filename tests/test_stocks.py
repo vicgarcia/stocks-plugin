@@ -298,10 +298,9 @@ class ChartTests(unittest.TestCase):
     def test_page_inlines_data_without_breaking_out_of_script(self):
         info = {"symbol": "TEST", "name": "</script><b>x", "exchange": "", "currency": "USD"}
         data = {"symbol": "TEST", "period": "6mo", "interval": "1d", "intraday": False, "bars": []}
-        page = stocks.chart_page(info, data, size=(800, 600))
+        page = stocks.chart_page(info, data)
         self.assertNotIn("</script><b>", page)
         self.assertNotIn("__", page.split("<script>")[1])
-        self.assertIn("width: 800px", page)
 
 
 if __name__ == "__main__":

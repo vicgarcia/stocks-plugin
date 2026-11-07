@@ -1,6 +1,6 @@
 # stocks-plugin
 
-The `stocks` agent skill and the `stocks.py` CLI behind it, for stock market data and analysis: a single-file Python CLI powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and open interactive charts in the browser or save them as PNGs.
+The `stocks` agent skill and the `stocks.py` CLI behind it, for stock market data and analysis: a single-file Python CLI powered by Yahoo Finance and the [yfinance](https://github.com/ranaroussi/yfinance) Python library. Enables AI agents to fetch real-time quotes with technical indicators, search for ticker symbols, retrieve news, surface analyst recommendations, retrieve dated financial snapshots, retrieve historical OHLCV data, and open interactive charts in the browser.
 
 ![Caterpillar 6-month chart](https://raw.githubusercontent.com/vicgarcia/stocks-plugin/main/screenshot.png)
 
@@ -14,7 +14,7 @@ The `stocks` agent skill and the `stocks.py` CLI behind it, for stock market dat
 - **Fundamentals** - Compact dated financial snapshot of income, free cash flow, cash, and debt
 - **Ticker search** - Find symbols by company name
 - **Historical data** - OHLCV data with configurable periods and intervals
-- **Interactive charts** - Candlestick or line chart served on localhost, with quote stats, range buttons, moving average toggles, a crosshair readout, and light/dark themes; `--png` saves a screenshot of it
+- **Interactive charts** - Candlestick or line chart served on localhost, with quote stats, range buttons, moving average toggles, a crosshair readout, and light/dark themes
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ In a coding harness, install `stocks.py` as a command in your PATH and give the 
 | `recommendations` | Analyst counts and dated rating/price-target changes |
 | `fundamentals` | Compact dated financial snapshot |
 | `history` | Get historical OHLCV data |
-| `chart` | Serve an interactive chart on localhost, or save a PNG of it |
+| `chart` | Serve an interactive chart on localhost |
 
 Add `--json` to any command except the chart server to get the data as JSON instead of formatted text, for scripts and agents. For example, `stocks.py quote AAPL --json`. Failures print `{"error": "..."}` and exit with status 1.
 
@@ -176,15 +176,9 @@ stocks.py chart AAPL
 # Start on 1 year with the 50 and 200-day moving averages, dark theme
 stocks.py chart MSFT --period 1y --ma 50 200 --theme dark
 
-# Save a PNG instead (needs Chrome, Edge or Chromium)
-stocks.py chart NVDA --png nvda.png
-stocks.py chart TSLA --type line --size 1600x900 --png tsla.png
-
 # Print the bars as JSON
 stocks.py chart AMD --period 5d --json
 ```
-
-`--png` loads the same page in headless Chrome, Edge or Chromium and screenshots it. Set `STOCKS_BROWSER` to the browser's path if it isn't found.
 
 ## Command Options
 
@@ -242,8 +236,6 @@ stocks.py chart AMD --period 5d --json
 | `--theme` | light | Color theme: light, dark |
 | `--port` | 8767 | Port to serve on; falls back to a free port if taken |
 | `--no-open` | off | Don't open a browser |
-| `--png FILE` | - | Save a screenshot instead of serving |
-| `--size` | 1200x800 | Screenshot size for `--png` |
 | `--json` | off | Print the chart data as JSON instead of serving |
 
 ## Agent Research Workflow

@@ -94,7 +94,7 @@ Retrieval failures are returned as data rather than raised as exceptions. Format
 - **Data:** the page's range buttons fetch `/data.json?period=&interval=`, which calls `get_chart_data()` live. Yahoo has no moving-average series, so `get_chart_data()` computes them server-side: a second `history(start=...)` call fetches enough bars before the range (`_lookback_start()`) for the longest average, and each average is returned aligned with the bars (null where history ran out).
 - **Stats strip:** `quote_from_info()` maps `ticker.info` to quote fields for both `quote` and the page (`get_chart_info()`); yfinance >= 0.2.54 reports `dividendYield` and `netExpenseRatio` as percentages already. `quote` uses Yahoo's `fiftyDayAverage` / `twoHundredDayAverage` and computes only SMA 20 and the EMAs.
 - **Credits:** the library's own TradingView logo is kept and its link retargeted to the symbol's page (`tradingview_url()` maps Yahoo symbols to TradingView's). The Yahoo icon is an inline SVG from Simple Icons 9.0.0 linking to the symbol's Yahoo Finance page.
-- **Output modes:** `--png` serves the page with controls hidden and a pinned size, and screenshots it with headless Chrome/Edge/Chromium (`find_browser()`, `STOCKS_BROWSER` override). `--json` prints the data. There is no matplotlib.
+- **Output modes:** the served page, or `--json` for the data. There is no image output.
 
 ### Fundamentals Pipeline
 
