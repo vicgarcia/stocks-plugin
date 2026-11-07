@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "stocks",
-      "source": ".",
+      "source": "./",
       "description": "Stock quotes, history, charts, news, analyst recommendations and financial snapshots from Yahoo Finance."
     }
   ]
