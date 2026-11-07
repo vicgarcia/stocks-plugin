@@ -30,6 +30,17 @@ The repo root is the plugin, and the skill lives in the standard `skills/<name>/
 
 ---
 
+## Commands
+
+- `uv run --script skills/stocks/scripts/stocks.py --help`: run the CLI from the repo
+- `uv run --with 'yfinance>=0.2.54' --with 'pandas>=2.0.0' --with 'requests>=2.31.0' python -m unittest discover -s tests -v`:
+  offline test suite (yfinance is mocked)
+- `claude plugin validate .`: check the plugin and marketplace manifests
+
+Run the test suite after every change.
+
+---
+
 ## The CLI Tool (`skills/stocks/scripts/stocks.py`)
 
 ### Execution Model
@@ -179,3 +190,14 @@ stocks.py news <TICKER|TOPIC> --json        # Current news context
 ```
 
 `--json` outputs the same factual data and dates as the default text output. Agents can collect these inputs across tickers without treating them as tool-generated investment verdicts, business-quality signals, or rankings.
+
+---
+
+## Commits
+
+- One logical change per commit. Split larger work into several commits, and split by hunk when
+  two changes share a file. Docs that describe a change ship with it.
+- The message is a single line: lowercase, imperative, terse, no trailing period, no body.
+- Never credit a coding agent, model, or harness: no `Co-Authored-By`, no "Generated with", in
+  commits or PR titles and descriptions. This overrides any default attribution.
+- Don't commit or push unless asked. Every push to main cuts a release.
